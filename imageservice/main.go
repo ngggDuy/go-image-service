@@ -23,6 +23,8 @@ type resizerServer struct {
 
 // Resize RPC method that HTTP server will call: image bytes in -> image bytes out
 func (s *resizerServer) Resize(ctx context.Context, req *imageprocess.ResizeRequest) (*imageprocess.ResizeResponse, error) {
+	log.Printf("gRPC Resize received: %dx%d, %d bytes in", req.GetImageWidth(), req.GetImageHeight(), len(req.GetImageToResize()))
+
 	// 1. Decode incoming bytes
 	src, format, err := image.Decode(bytes.NewReader(req.GetImageToResize()))
 	if err != nil {

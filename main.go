@@ -136,6 +136,7 @@ func (a *app) uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}{{"12x12", 12, 12}, {"25x25", 25, 25}}
 
 	for _, size := range sizes {
+		log.Printf("upload %s: calling image service to resize %s", id, size.name)
 		resp, err := a.resizer.Resize(r.Context(), &imageprocess.ResizeRequest{
 			ImageToResize: data,
 			ImageWidth:    size.w,
