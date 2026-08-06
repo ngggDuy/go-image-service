@@ -170,6 +170,29 @@ func (a *app) uploadHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(UploadResponse{ID: id})
 }
 
+func imagesHandler(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if len(id) != 32 {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	size := r.URL.Query().Get("size")
+	switch size {
+	case "original", "12x12", "25x25": // ok
+	default:
+		http.Error(w, "Invalid or missing size", http.StatusBadRequest)
+		return
+	}
+
+	matches, _ := filepath.Glob(filepath.Join("uploads", id, size+".*"))
+	if len(matches) == 0 {
+		http.Error(w, "Image not found", http.StatusNotFound)
+	}
+
+	http.ServeFile(w, r, matches[0]) // sets Content-Type + streams the bytes
+}
+
 func main() {
 	// create gRPC client and build app
 	conn, err := grpc.NewClient(
@@ -211,7 +234,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler)
 	mux.HandleFunc("POST /upload", a.uploadHandler)
-	// mux.HandleFunc("GET /response", responseHandler)
+	mux.HandleFunc("GET /images/{id}", imagesHandler)
 
 	log.Fatal(http.ListenAndServe(":8080", mux))
 
