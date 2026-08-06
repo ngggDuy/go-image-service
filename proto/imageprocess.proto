@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package imageprocess;
+
+option go_package = "go-image-service/gen/imageprocess";
+
+// gRPC .proto (Protocol Buffers) file contains:
+// 1. Services 
+// 2. Messages
+
+// A service contains the request and repsonse type
+service Resizer {
+    rpc Resize(ResizeRequest) returns (ResizeResponse);
+}
+
+// A message is a typed struct; each field has a type, name, and NUMBER
+message ResizeRequest {
+    bytes image_to_resize = 1;
+    int32 image_width = 2;
+    int32 image_height = 3;
+}
+
+message ResizeResponse {
+    bytes resized_image = 1;
+}
+
+

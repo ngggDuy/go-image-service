@@ -23,14 +23,12 @@ responding.
 
 **Success — `201 Created`**
 
-Returns JSON with the generated `id` and the location of each version:
+Returns JSON with the generated `id`. The client builds the image URLs from
+this id using the known scheme `/images/{id}?size={original|12x12|25x25}`.
 
 ```json
 {
-  "id": "a1b2c3",
-  "original": "/images/a1b2c3?size=original",
-  "12x12": "/images/a1b2c3?size=12x12",
-  "25x25": "/images/a1b2c3?size=25x25"
+  "id": "a1b2c3"
 }
 ```
 
