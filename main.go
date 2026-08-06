@@ -5,15 +5,25 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"go-image-service/gen/imageprocess"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // 10 MB maximum upload size
 const maxUploadSize = 10 * 1024 * 1024
+
+// Handlers are currently package level funcs so can't reach clients.
+// Fix: we add a small struct that holds dependencies to inject into the client.
+type app struct {
+	resizer imageprocess.ResizerClient
+}
 
 type HealthResponse struct {
 	Status string `json:"status"`
@@ -39,7 +49,7 @@ func newID() (string, error) {
 }
 
 // uploadHandler
-func uploadHandler(w http.ResponseWriter, r *http.Request) {
+func (a *app) uploadHandler(w http.ResponseWriter, r *http.Request) {
 	// Limit upload file size
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 
@@ -103,19 +113,40 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// os.CreateTemp generates a random string replacing the `*`
-	// e.g., "upload-1934857.jpg"
-	dst, err := os.Create(filepath.Join(dir, "original"+ext))
+	// read image into memory (< 10 MB) so we can store it and send to resizer process
+	data, err := io.ReadAll(file)
 	if err != nil {
-		http.Error(w, "Error saving file", http.StatusInternalServerError)
+		http.Error(w, "Error reading the uploaded file", http.StatusInternalServerError)
 		return
 	}
-	defer dst.Close()
 
-	// Stream uploaded file to destination file
-	if _, err := io.Copy(dst, file); err != nil {
-		http.Error(w, "Error writing file", http.StatusInternalServerError)
+	// save original
+	if err := os.WriteFile(filepath.Join(dir, "original"+ext), data, 0o644); err != nil {
+		http.Error(w, "Error saving original", http.StatusInternalServerError)
 		return
+	}
+
+	// resize image to each size by calling image service over gRPC, save result
+	sizes := []struct {
+		name string
+		w, h int32
+	}{{"12x12", 12, 12}, {"25x25", 25, 25}}
+
+	for _, size := range sizes {
+		resp, err := a.resizer.Resize(r.Context(), &imageprocess.ResizeRequest{
+			ImageToResize: data,
+			ImageWidth:    size.w,
+			ImageHeight:   size.h,
+		})
+		if err != nil {
+			log.Printf("resize RPC failed: %v", err) // logged here to find bug where gRPC limits request to 4MB by default to prevent OOM
+			http.Error(w, "Error resizing image", http.StatusInternalServerError)
+			return
+		}
+		if err := os.WriteFile(filepath.Join(dir, size.name+ext), resp.GetResizedImage(), 0o644); err != nil {
+			http.Error(w, "Error saving resized image", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -124,6 +155,18 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	// create gRPC client and build app
+	conn, err := grpc.NewClient(
+		"localhost:50051",
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+
+	a := &app{resizer: imageprocess.NewResizerClient(conn)}
+
 	// Create safe, unique file destination on disk before even starting server.
 	// Upload directories don't change on request so initiating it inside handler is wasteful
 	// Ensure uploads directory exists
@@ -133,7 +176,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler)
-	mux.HandleFunc("POST /upload", uploadHandler)
+	mux.HandleFunc("POST /upload", a.uploadHandler)
 	// mux.HandleFunc("GET /response", responseHandler)
 
 	log.Fatal(http.ListenAndServe(":8080", mux))

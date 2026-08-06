@@ -16,9 +16,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type app struct {
-}
-
 // resizerServer implements the generated imageprocess.ResizerServer interface
 type resizerServer struct {
 	imageprocess.UnimplementedResizerServer
@@ -60,8 +57,8 @@ func main() {
 		log.Fatalf("Failed to listen: %v", err)
 	}
 
-	s := grpc.NewServer()                                   // 2. Create gRPC server
-	imageprocess.RegisterResizerServer(s, &resizerServer{}) // 3. implement generated interface
+	s := grpc.NewServer(grpc.MaxRecvMsgSize(20 * 1024 * 1024)) // 2. Create gRPC server with extended upload cap
+	imageprocess.RegisterResizerServer(s, &resizerServer{})    // 3. implement generated interface
 
 	log.Println("image service listening on :50051")
 	if err := s.Serve(lis); err != nil {
