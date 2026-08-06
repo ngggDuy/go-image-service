@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -23,6 +25,7 @@ const maxUploadSize = 10 * 1024 * 1024
 // Fix: we add a small struct that holds dependencies to inject into the client.
 type app struct {
 	resizer imageprocess.ResizerClient
+	db      *pgxpool.Pool
 }
 
 type HealthResponse struct {
@@ -65,7 +68,7 @@ func (a *app) uploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Get file from form field "image"
 	// must match the name attribute in the form: <input type="file" name="image">
-	file, _, err := r.FormFile("image")
+	file, fileHeader, err := r.FormFile("image")
 	if err != nil {
 		if errors.Is(err, http.ErrMissingFile) {
 			http.Error(w, "No image file provided", http.StatusBadRequest)
@@ -149,6 +152,19 @@ func (a *app) uploadHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Save metadata via parameterized placeholders.
+	// db driver sends values apart from query string to
+	// prevent against SQL injection
+	_, err = a.db.Exec(r.Context(),
+		`INSERT INTO uploads (id, original_filename, ext, status)
+       VALUES ($1, $2, $3, $4)`,
+		id, fileHeader.Filename, ext, "complete",
+	)
+	if err != nil {
+		http.Error(w, "Error saving metadata", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(UploadResponse{ID: id})
@@ -165,7 +181,25 @@ func main() {
 	}
 	defer conn.Close()
 
-	a := &app{resizer: imageprocess.NewResizerClient(conn)}
+	// connect to database
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		dsn = "postgres://imageservice:secret@localhost:5432/imageservice"
+	}
+	pool, err := pgxpool.New(context.Background(), dsn)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer pool.Close()
+	// pgxpool.New is lazy connect so we pool.Ping at startup to fail fast if db is unreachable
+	if err := pool.Ping(context.Background()); err != nil {
+		log.Fatal("Cannot reach postgres: %v", err)
+	}
+
+	a := &app{
+		resizer: imageprocess.NewResizerClient(conn),
+		db:      pool,
+	}
 
 	// Create safe, unique file destination on disk before even starting server.
 	// Upload directories don't change on request so initiating it inside handler is wasteful
