@@ -194,9 +194,15 @@ func imagesHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	// Create address for Image Service container
+	imgServiceAddr := os.Getenv("IMAGE_SERVICE_ADDR")
+	if imgServiceAddr == "" {
+		imgServiceAddr = "localhost:50051" // local default
+	}
+
 	// create gRPC client and build app
 	conn, err := grpc.NewClient(
-		"localhost:50051",
+		imgServiceAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {

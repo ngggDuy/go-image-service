@@ -1,0 +1,13 @@
+# ---- build stage: full Go toolchain ----
+FROM golang:1.26 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /bin/imageservice ./imageservice
+
+# ---- run stage: tiny image with just the binary ----
+FROM gcr.io/distroless/static-debian12
+COPY --from=build /bin/imageservice /bin/imageservice
+EXPOSE 50051
+ENTRYPOINT ["/bin/imageservice"]

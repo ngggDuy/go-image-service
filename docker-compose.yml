@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: imageservice
+      POSTGRES_PASSWORD: secret
+      POTSGRES_DB: imageservice
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+     test: ["CMD-SHELL", "pg_isready -U imageservice -d imageservice"]
+     interval: 2s
+     timeout: 3s
+     retries: 10
+  
+  imageservice:
+    build:
+      context: .
+      dockerfile: Dockerfile.imageservice
+
+  httpserver:
+    build:
+      context: .
+      dockerfile: Dockerfile.httpserver
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://imageservice:secret@postgres:5432/imageservice
+      IMAGE_SERVICE_ADDR: imageservice:50051
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      imageservice:
+        condition: service_started
+  
+volumes:
+  pgdata:
+  uploads:
