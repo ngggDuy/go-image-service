@@ -1,0 +1,23 @@
+# macOS
+.DS_Store
+
+# Runtime image storage (created by the http server at runtime)
+uploads/
+
+# Large binary test fixtures — keep sample images/PDFs out of git history.
+# NOTE: only these asset types are ignored, so future Go test code in tests/
+# (tests/*.go) is still tracked.
+tests/*.jpg
+tests/*.jpeg
+tests/*.png
+tests/*.pdf
+
+# Local environment overrides / secrets
+.env
+
+# Go build artifacts
+*.exe
+*.test
+*.out
+go.work
+go.work.sum

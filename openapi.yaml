@@ -1,0 +1,87 @@
+openapi: 3.0.3
+info: 
+  title: go-image-service API
+  version: 1.0.0
+  description: Upload images, resize them, and fetch version by URL
+servers:
+  - url: http://localhost:8080  
+
+paths:
+  /health:                  # URL path
+    get:                    # HTTP Method -> one "operation"
+      summary: Liveness check
+      responses:            # keyed by status code
+        '200':
+          description: Service is alive
+          content:
+            application/json: # the response content-type
+              schema:         # shape of the body
+                type: object
+                properties: 
+                  status:
+                    type: string
+                    example: ok
+                    
+  /images/{id}:
+    get:
+      summary: Get uploaded image by id
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: size
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: ['original', '12x12', '25x25'] # only allows these sizes
+      responses:
+        '200':
+          description: Request ok
+          content: 
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        '400': 
+          description: Bad request
+        '404':
+          description: Request not found
+
+  /upload:
+    post:
+      summary: Upload an image; it is stored and resized to 12x12 and 25x25
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:      # a file upload
+            schema:
+              type: object
+              required:
+                - image
+              properties:
+                image:
+                  type: string
+                  format: binary     # the uploaded file bytes
+      responses:
+        '201':
+          description: Image accepted, stored, and resized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    example: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4
+        '400':
+          description: No file provided, or unsupported file type (JPEG/PNG only)
+        '413':
+          description: File exceeds the 10 MB limit
+        '500':
+          description: Server error while storing or resizing
+
+
+                
