@@ -2,16 +2,16 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"go-image-service/gen/imageprocess"
+	"go-image-service/internal/id"
+	"go-image-service/internal/resizer"
+	"go-image-service/internal/storage"
 	"io"
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
@@ -24,7 +24,8 @@ const maxUploadSize = 10 * 1024 * 1024
 // Handlers are currently package level funcs so can't reach clients.
 // Fix: we add a small struct that holds dependencies to inject into the client.
 type app struct {
-	resizer imageprocess.ResizerClient
+	store   *storage.Store
+	resizer *resizer.Client
 	db      *pgxpool.Pool
 }
 
@@ -40,15 +41,6 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(HealthResponse{Status: "ok"})
-}
-
-// Helper to generates a new 32 character unique ID from 16 random bytes
-func newID() (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
 }
 
 // uploadHandler
@@ -105,14 +97,9 @@ func (a *app) uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate ID
-	id, err := newID()
+	id, err := id.New()
 	if err != nil {
 		http.Error(w, "Error when generating new image ID", http.StatusInternalServerError)
-		return
-	}
-	dir := filepath.Join("uploads", id)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		http.Error(w, "Error creating storage folder", http.StatusInternalServerError)
 		return
 	}
 
@@ -124,8 +111,9 @@ func (a *app) uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// save original
-	if err := os.WriteFile(filepath.Join(dir, "original"+ext), data, 0o644); err != nil {
-		http.Error(w, "Error saving original", http.StatusInternalServerError)
+	err = a.store.Save(id, "original", ext, data)
+	if err != nil {
+		http.Error(w, "Error saving original image", http.StatusInternalServerError)
 		return
 	}
 
@@ -137,17 +125,15 @@ func (a *app) uploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	for _, size := range sizes {
 		log.Printf("upload %s: calling image service to resize %s", id, size.name)
-		resp, err := a.resizer.Resize(r.Context(), &imageprocess.ResizeRequest{
-			ImageToResize: data,
-			ImageWidth:    size.w,
-			ImageHeight:   size.h,
-		})
+		resized, err := a.resizer.Resize(r.Context(), data, int(size.w), int(size.h))
 		if err != nil {
-			log.Printf("resize RPC failed: %v", err) // logged here to find bug where gRPC limits request to 4MB by default to prevent OOM
+			log.Printf("resize RPC failed: %v", err)
 			http.Error(w, "Error resizing image", http.StatusInternalServerError)
 			return
 		}
-		if err := os.WriteFile(filepath.Join(dir, size.name+ext), resp.GetResizedImage(), 0o644); err != nil {
+		// save resized versions
+		err = a.store.Save(id, size.name, ext, resized)
+		if err != nil {
 			http.Error(w, "Error saving resized image", http.StatusInternalServerError)
 			return
 		}
@@ -171,7 +157,7 @@ func (a *app) uploadHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(UploadResponse{ID: id})
 }
 
-func imagesHandler(w http.ResponseWriter, r *http.Request) {
+func (a *app) imagesHandler(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if len(id) != 32 {
 		http.Error(w, "Invalid ID", http.StatusBadRequest)
@@ -186,12 +172,16 @@ func imagesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	matches, _ := filepath.Glob(filepath.Join("uploads", id, size+".*"))
-	if len(matches) == 0 {
-		http.Error(w, "Image not found", http.StatusNotFound)
+	path, err := a.store.Path(id, size)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			http.Error(w, "Image not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Server error", http.StatusInternalServerError)
+		return
 	}
-
-	http.ServeFile(w, r, matches[0]) // sets Content-Type + streams the bytes
+	http.ServeFile(w, r, path) // sets Content-Type + streams the bytes
 }
 
 func main() {
@@ -223,25 +213,27 @@ func main() {
 	defer pool.Close()
 	// pgxpool.New is lazy connect so we pool.Ping at startup to fail fast if db is unreachable
 	if err := pool.Ping(context.Background()); err != nil {
-		log.Fatal("Cannot reach postgres: %v", err)
-	}
-
-	a := &app{
-		resizer: imageprocess.NewResizerClient(conn),
-		db:      pool,
+		log.Fatalf("Cannot reach postgres: %v", err)
 	}
 
 	// Create safe, unique file destination on disk before even starting server.
 	// Upload directories don't change on request so initiating it inside handler is wasteful
 	// Ensure uploads directory exists
-	if err := os.MkdirAll("./uploads", 0o755); err != nil {
+	store, err := storage.New("uploads")
+	if err != nil {
 		log.Fatal(err)
+	}
+
+	a := &app{
+		store:   store,
+		resizer: resizer.New(imageprocess.NewResizerClient(conn)),
+		db:      pool,
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler)
 	mux.HandleFunc("POST /upload", a.uploadHandler)
-	mux.HandleFunc("GET /images/{id}", imagesHandler)
+	mux.HandleFunc("GET /images/{id}", a.imagesHandler)
 
 	log.Fatal(http.ListenAndServe(":8080", mux))
 
