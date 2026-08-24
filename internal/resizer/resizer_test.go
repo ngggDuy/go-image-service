@@ -25,7 +25,7 @@ func (f *fakeGRPC) Resize(ctx context.Context, in *imageprocess.ResizeRequest, o
 
 func TestResize_TranslatesAndReturnsBytes(t *testing.T) {
 	fake := &fakeGRPC{resp: &imageprocess.ResizeResponse{ResizedImage: []byte("resized")}}
-	c := New(fake)
+	c := New(fake) // The caller supplies the dependency. The type doesn't build it.
 
 	got, err := c.Resize(context.Background(), []byte("orig"), 12, 25)
 	if err != nil {
@@ -34,6 +34,7 @@ func TestResize_TranslatesAndReturnsBytes(t *testing.T) {
 	if string(got) != "resized" {
 		t.Errorf("Resize() = %q, want %q", got, "resized")
 	}
+	// This is a spy that records how it was called (gotReq), so we can assert that our code passed the right args.
 	// It should have translated our args into the protobuf request correctly.
 	if string(fake.gotReq.GetImageToResize()) != "orig" {
 		t.Errorf("request image = %q, want %q", fake.gotReq.GetImageToResize(), "orig")

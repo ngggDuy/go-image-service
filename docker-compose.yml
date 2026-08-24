@@ -4,22 +4,67 @@ services:
     environment:
       POSTGRES_USER: imageservice
       POSTGRES_PASSWORD: secret
-      POTSGRES_DB: imageservice
+      POSTGRES_DB: imageservice
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
     healthcheck:
-     test: ["CMD-SHELL", "pg_isready -U imageservice -d imageservice"]
-     interval: 2s
-     timeout: 3s
-     retries: 10
-  
+      test: ["CMD-SHELL", "pg_isready -U imageservice -d imageservice"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+  temporal:
+    image: temporalio/auto-setup:1.25.2
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: imageservice
+      POSTGRES_PWD: secret
+    ports:
+      - "7233:7233"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  temporal-ui:
+    image: temporalio/ui:2.34.0
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:8088
+    ports:
+      - "8088:8080" # Temporal Web UI on http://localhost:8088 
+    depends_on:
+      - temporal
+
   imageservice:
     build:
       context: .
       dockerfile: Dockerfile.imageservice
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      IMAGE_SERVICE_ADDR: imageservice:50051
+      DATABASE_URL: postgres://imageservice:secret@postgres:5432/imageservice
+    volumes:
+      - uploads:/app/uploads
+    restart: on-failure # retry until Temporal's frontend is ready
+    deploy:
+      replicas: 2 # two workers share the task queue
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+      imageservice:
+        condition: service_started
 
   httpserver:
     build:
@@ -29,15 +74,16 @@ services:
       - "8080:8080"
     environment:
       DATABASE_URL: postgres://imageservice:secret@postgres:5432/imageservice
-      IMAGE_SERVICE_ADDR: imageservice:50051
+      TEMPORAL_ADDRESS: temporal:7233
     volumes:
       - uploads:/app/uploads
+    restart: on-failure # retry until Temporal's frontend is ready
     depends_on:
       postgres:
         condition: service_healthy
-      imageservice:
+      temporal:
         condition: service_started
-  
+
 volumes:
   pgdata:
   uploads:

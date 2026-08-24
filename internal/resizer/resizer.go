@@ -9,7 +9,7 @@ import (
 // Client adapts the generated gRPC client to a plain bytes-in/bytes-out API,
 // so the rest of the app never has to touch protobuf types.
 type Client struct {
-	grpc imageprocess.ResizerClient
+	grpc imageprocess.ResizerClient // This is an interface, so the dependency is swappable.
 }
 
 // NOTE: An interface can have many implementations. Refactor this so that it takes in a struct and

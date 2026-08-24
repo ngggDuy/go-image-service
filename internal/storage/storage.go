@@ -32,6 +32,11 @@ func (s *Store) Save(id, name, ext string, data []byte) error {
 	return os.WriteFile(filepath.Join(dir, name+ext), data, 0o644)
 }
 
+// Read returns the bytes of the stored file <root>/<id>/<name><ext>.
+func (s *Store) Read(id, name, ext string) ([]byte, error) {
+	return os.ReadFile(filepath.Join(s.root, id, name+ext))
+}
+
 // Path returns the path to the stored file for id + size (e.g. "12x12"),
 // or ErrNotFound if none exists.
 func (s *Store) Path(id, size string) (string, error) {

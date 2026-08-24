@@ -11,12 +11,15 @@ The full, formal contract is in **[`openapi.yaml`](./openapi.yaml)**.
 
 | Method | Path | Request | Success | Errors |
 |--------|------|---------|---------|--------|
-| `POST` | `/upload` | `multipart/form-data`, field **`image`** (JPEG/PNG, ≤ 10 MB) | `201` → `{"id":"..."}` | `400`, `413`, `500` |
+| `POST` | `/upload` | `multipart/form-data`, field **`image`** (JPEG/PNG, ≤ 10 MB) | `202` → `{"id":"..."}` | `400`, `413`, `500` |
+| `GET` | `/images/{id}/status` | — | `200` → `{"id":"...","status":"..."}` | `400`, `404` |
 | `GET` | `/images/{id}?size=` | `size` = `original` \| `12x12` \| `25x25` | `200` → image bytes | `400`, `404` |
 | `GET` | `/health` | — | `200` → `{"status":"ok"}` | — |
 
-The upload response returns only the `id`. Build image URLs from it using the
-scheme `/images/{id}?size={original|12x12|25x25}`.
+Upload is **asynchronous**: `POST /upload` returns `202 Accepted` with the `id`, then a
+Temporal workflow resizes the image in the background. Poll `GET /images/{id}/status` until it
+reads `complete` (`processing` → `complete` / `failed`), then fetch images via
+`/images/{id}?size={original|12x12|25x25}`.
 
 ### Examples
 
@@ -58,16 +61,22 @@ Common commands (run `make` with no argument to list them all):
 
 ## How it works
 
-Three services, run together with Docker Compose:
+Services, run together with Docker Compose:
 
 | Service | Role | Port |
 |---------|------|------|
-| `httpserver` | HTTP API — accepts uploads, stores files, writes metadata | `8080` (host) |
+| `httpserver` | HTTP API — stores the original, starts the resize workflow, serves images | `8080` (host) |
+| `worker` (×2) | Temporal workers that run the resize activities | internal |
 | `imageservice` | gRPC service that resizes image bytes (stateless) | `50051` (internal) |
-| `postgres` | Stores upload metadata | `5432` (host) |
+| `temporal` | Temporal cluster (orchestration engine) | `7233` (internal) |
+| `temporal-ui` | Temporal Web UI | `8088` (host) |
+| `postgres` | Upload metadata (and Temporal's own database) | `5432` (host) |
 
-Flow: client → **HTTP** → `httpserver` → **gRPC** → `imageservice` (resize).
-The `httpserver` stores image files on disk and metadata in Postgres.
+Flow: `POST /upload` saves the original and starts a **Temporal workflow**, which fans out
+the two resizes as **parallel activities** across the workers; each activity calls
+`imageservice` over **gRPC** and stores the result, then the workflow marks the upload
+`complete`. Watch it live in the Temporal UI at **http://localhost:8088**. Full explanation in
+[`docs/temporal.md`](./docs/temporal.md).
 
 Design notes:
 - The **image service is stateless** — bytes in, resized bytes out. All state
@@ -95,5 +104,6 @@ Only needed if you change the code or the `.proto` contract.
 - **Regenerate gRPC code** after editing `proto/imageprocess.proto`: `make proto`
   (requires `protoc`, `protoc-gen-go`, `protoc-gen-go-grpc`, with `$(go env GOPATH)/bin`
   on your `PATH`).
-- **Run without Docker:** start Postgres (`docker compose up -d postgres`), then in two
-  terminals run `go run ./imageservice` and `go run .`.
+- **Run without Docker:** bring up the backing services
+  (`docker compose up -d postgres temporal imageservice`), then in separate terminals run
+  `go run ./cmd/worker` and `go run ./cmd/httpserver`.

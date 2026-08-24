@@ -23,8 +23,8 @@ down: ## Stop and remove containers
 clean: ## Stop containers AND delete volumes (wipes DB + uploads)
 	$(COMPOSE) down -v
 
-logs: ## Follow logs from the two Go services
-	$(COMPOSE) logs -f httpserver imageservice
+logs: ## Follow logs from the Go services
+	$(COMPOSE) logs -f httpserver imageservice worker
 
 ps: ## Show container status
 	$(COMPOSE) ps
@@ -36,4 +36,4 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-8s\033[0m %s\n", $$1, $$2}'
 
-.PHONY: proto test up up-d down clean logs ps db help
+
