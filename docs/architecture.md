@@ -2,9 +2,11 @@
 
 The system after Phase 4 (**presigned uploads + completion signal**). Image bytes no longer
 pass through `httpserver` — the client PUTs them straight to MinIO against a presigned URL,
-and the workflow, which started *before* any bytes existed, is woken by a signal. Week-1
-additions (auth + rate limiting) are marked; they still slot in at the HTTP edge without
-changing the rest of the system.
+and the workflow, which started *before* any bytes existed, is woken by a signal.
+
+**AuthN/authZ is a separate gRPC service** (see the Auth section below): the httpserver holds
+neither the users table nor the JWT secret — it verifies every request's bearer token by
+calling the auth service, stamps the owner on each upload, and owner-checks reads.
 
 The presigned URL exists to **reduce server load and avoid double-handling the file**: the
 client uploads directly to MinIO, so the API never buffers, copies, or re-streams image bytes.
@@ -22,8 +24,8 @@ client uploads directly to MinIO, so the API never buffers, copies, or re-stream
                 │◄──────────────────────────────────────────┘         │
                 ▼                                                     │
  ┌────────────────────────────┐                                       │
- │ httpserver :8080           │                                       │
- │ [auth + rate limit]        │                                       │
+ │ httpserver :8080           │──gRPC──► authservice :50052           │
+ │ [requireAuth middleware]   │  verify  (users, bcrypt, JWT secret)  │
  └───┬────────────────┬───────┘                                       │
      │ start workflow │ signal "upload-complete"                      │
      ▼                ▼                                               │
@@ -49,6 +51,24 @@ client uploads directly to MinIO, so the API never buffers, copies, or re-stream
 
 `POST /upload` (multipart) is **removed**, not kept alongside — two upload paths would double
 the handler test surface and the second one would rot.
+
+## Auth (separate gRPC service)
+
+```
+Client ──Authorization: Bearer <jwt>──► httpserver
+                                          │ requireAuth middleware
+                                          ▼ gRPC: Register / Login / Verify
+                                    authservice :50052
+                                          │  (bcrypt, JWT secret, users table)
+                                          ▼
+                                    Postgres (users)
+```
+
+- Public: `POST /register`, `POST /login`. Every other route requires a valid token.
+- The middleware calls `Verify` per request, then puts the caller's `user_id` in context.
+- Uploads are stamped with `user_id`; reads are owner-checked (**404** if not yours, so an id
+  can't be probed for existence).
+- The httpserver is a pure client — it holds neither the users table nor the JWT secret.
 
 ## Transport
 

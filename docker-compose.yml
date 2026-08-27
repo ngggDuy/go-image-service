@@ -16,6 +16,18 @@ services:
       timeout: 3s
       retries: 10
 
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # web console at http://localhost:9001
+    volumes:
+      - miniodata:/data
+
   temporal:
     image: temporalio/auto-setup:1.25.2
     environment:
@@ -101,3 +113,4 @@ services:
 volumes:
   pgdata:
   uploads:
+  miniodata:
