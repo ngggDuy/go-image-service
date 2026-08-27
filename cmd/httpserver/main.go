@@ -5,12 +5,14 @@ import (
 	"log"
 	"net/http"
 
+	"go-image-service/internal/auth"
 	"go-image-service/internal/config"
 	"go-image-service/internal/metadata"
 	"go-image-service/internal/pipeline"
 	"go-image-service/internal/storage"
 	"go-image-service/internal/transport"
 	"go-image-service/internal/upload"
+	"go-image-service/internal/user"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/client"
@@ -44,8 +46,11 @@ func main() {
 
 	// Wire the upload service via temporal and the HTTP server.
 	repo := metadata.New(pool)
+	userRepo := user.New(pool)
+	authSvc := auth.NewService(userRepo)
 	svc := upload.New(store, repo, pipeline.NewOrchestrator(tc, cfg.TaskQueue))
-	server := transport.New(svc, store, repo)
+
+	server := transport.New(authSvc, svc, store, repo)
 
 	log.Printf("http server listening on %s", cfg.HTTPAddr)
 	log.Fatal(http.ListenAndServe(cfg.HTTPAddr, server.Routes()))

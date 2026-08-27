@@ -8,6 +8,10 @@ import (
 
 const maxUploadSize = 10 * 1024 * 1024 // 10 MB
 
+type Registrar interface {
+	Register(ctx context.Context, email, password string) (string, error)
+}
+
 // Uploader is the upload use-case this layer calls. upload.Service satisfies it.
 type Uploader interface {
 	Process(ctx context.Context, data []byte, filename, ext string) (string, error)
@@ -25,18 +29,20 @@ type StatusReader interface {
 
 // Server holds the dependencies the HTTP handlers need and wires the routes.
 type Server struct {
+	auth    Registrar
 	uploads Uploader
 	store   ImageStore
 	status  StatusReader
 }
 
-func New(uploads Uploader, store ImageStore, status StatusReader) *Server {
-	return &Server{uploads: uploads, store: store, status: status}
+func New(auth Registrar, uploads Uploader, store ImageStore, status StatusReader) *Server {
+	return &Server{auth: auth, uploads: uploads, store: store, status: status}
 }
 
 // Routes registers every route and returns the HTTP handler.
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /register", s.register)
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("POST /upload", s.upload)
 	mux.HandleFunc("GET /images/{id}", s.images)

@@ -1,13 +1,23 @@
 package transport
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"unicode/utf8"
 
 	"go-image-service/internal/metadata"
 	"go-image-service/internal/storage"
 )
+
+type registerRequest struct {
+	Email    string `json:"email" validate:"required, email"`
+	Password string `json:"password" validate:"required"`
+}
+type registerResponse struct {
+	ID string `json:"id"`
+}
 
 type healthResponse struct {
 	Status string `json:"status"`
@@ -24,6 +34,43 @@ type statusResponse struct {
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, healthResponse{Status: "ok"})
+}
+
+func (s *Server) register(w http.ResponseWriter, r *http.Request) {
+	// 1. decode JSON body into a registerRequest (400 on failure)
+	var registerUserPayload registerRequest
+	if err := json.NewDecoder(r.Body).Decode(&registerUserPayload); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// 2. basic validation: non-empty email & password; password alphanumeric length >= 8
+	// Non-empty check
+	if registerUserPayload.Email == "" {
+		http.Error(w, "Email must be non-empty.", http.StatusBadRequest)
+		return
+	}
+	if registerUserPayload.Password == "" {
+		http.Error(w, "Password must be non-empty", http.StatusBadRequest)
+		return
+	}
+
+	// Length check
+	if utf8.RuneCountInString(registerUserPayload.Password) < 8 {
+		http.Error(w, "Password must be at least 8 characters in length.", http.StatusBadRequest)
+		return
+	}
+
+	// 3. register user
+	id, err := s.auth.Register(r.Context(), registerUserPayload.Email, registerUserPayload.Password)
+	if err != nil {
+		http.Error(w, "Could not register", http.StatusInternalServerError)
+		return
+	}
+
+	// 4. return register response
+	writeJSON(w, http.StatusCreated, registerResponse{ID: id})
+
 }
 
 func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
