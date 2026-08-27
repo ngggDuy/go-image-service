@@ -3,31 +3,41 @@ package transport
 import (
 	"encoding/json"
 	"errors"
-	"io"
+	"log"
 	"net/http"
 	"unicode/utf8"
 
 	"go-image-service/internal/auth"
 	"go-image-service/internal/metadata"
-	"go-image-service/internal/storage"
+	"go-image-service/internal/upload"
 )
-
-type registerRequest struct {
-	Email    string `json:"email" validate:"required, email"`
-	Password string `json:"password" validate:"required"`
-}
-type registerResponse struct {
-	ID string `json:"id"`
-}
 
 type healthResponse struct {
 	Status string `json:"status"`
 }
-
-type uploadResponse struct {
+type registerRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+type registerResponse struct {
 	ID string `json:"id"`
 }
-
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+type loginResponse struct {
+	Token string `json:"token"`
+}
+type createUploadRequest struct {
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+}
+type createUploadResponse struct {
+	ID        string `json:"id"`
+	URL       string `json:"url"`
+	ExpiresIn int    `json:"expires_in"`
+}
 type statusResponse struct {
 	ID     string `json:"id"`
 	Status string `json:"status"`
@@ -38,48 +48,26 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) register(w http.ResponseWriter, r *http.Request) {
-	// 1. decode JSON body into a registerRequest (400 on failure)
-	var registerUserPayload registerRequest
-	if err := json.NewDecoder(r.Body).Decode(&registerUserPayload); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	var req registerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if req.Email == "" || req.Password == "" {
+		http.Error(w, "email and password are required", http.StatusBadRequest)
+		return
+	}
+	if utf8.RuneCountInString(req.Password) < 8 {
+		http.Error(w, "password must be at least 8 characters", http.StatusBadRequest)
 		return
 	}
 
-	// 2. basic validation: non-empty email & password; password alphanumeric length >= 8
-	// Non-empty check
-	if registerUserPayload.Email == "" {
-		http.Error(w, "Email must be non-empty.", http.StatusBadRequest)
-		return
-	}
-	if registerUserPayload.Password == "" {
-		http.Error(w, "Password must be non-empty", http.StatusBadRequest)
-		return
-	}
-
-	// Length check
-	if utf8.RuneCountInString(registerUserPayload.Password) < 8 {
-		http.Error(w, "Password must be at least 8 characters in length.", http.StatusBadRequest)
-		return
-	}
-
-	// 3. register user
-	id, err := s.auth.Register(r.Context(), registerUserPayload.Email, registerUserPayload.Password)
+	id, err := s.auth.Register(r.Context(), req.Email, req.Password)
 	if err != nil {
-		http.Error(w, "Could not register", http.StatusInternalServerError)
+		http.Error(w, "could not register", http.StatusInternalServerError)
 		return
 	}
-
-	// 4. return register response
 	writeJSON(w, http.StatusCreated, registerResponse{ID: id})
-
-}
-
-type loginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
-type loginResponse struct {
-	Token string `json:"token"`
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -91,8 +79,6 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 	token, err := s.auth.Login(r.Context(), req.Email, req.Password)
 	if err != nil {
-		// Same 401 whether the email is unknown or the password is wrong —
-		// never reveal which, to prevent account enumeration.
 		if errors.Is(err, auth.ErrInvalidCredentials) {
 			http.Error(w, "invalid email or password", http.StatusUnauthorized)
 			return
@@ -100,74 +86,57 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not log in", http.StatusInternalServerError)
 		return
 	}
-
 	writeJSON(w, http.StatusOK, loginResponse{Token: token})
 }
 
-func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
-
-	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
-		var maxBytesErr *http.MaxBytesError
-		if errors.As(err, &maxBytesErr) {
-			http.Error(w, "File too large (max 10 MB)", http.StatusRequestEntityTooLarge)
-			return
-		}
-		http.Error(w, "Malformed upload request", http.StatusBadRequest)
+// createUpload negotiates a presigned upload: it records a pending row, starts
+// the workflow, and returns a URL the client PUTs the bytes to directly.
+func (s *Server) createUpload(w http.ResponseWriter, r *http.Request) {
+	var req createUploadRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
-
-	file, fileHeader, err := r.FormFile("image")
-	if err != nil {
-		if errors.Is(err, http.ErrMissingFile) {
-			http.Error(w, "No image file provided", http.StatusBadRequest)
-			return
-		}
-		http.Error(w, "Error retrieving uploaded image", http.StatusBadRequest)
+	if req.Filename == "" {
+		http.Error(w, "filename is required", http.StatusBadRequest)
 		return
 	}
-	defer file.Close()
-
-	// Sniff the content type from the first 512 bytes.
-	buff := make([]byte, 512)
-	if _, err := file.Read(buff); err != nil {
-		http.Error(w, "Error reading uploaded file", http.StatusInternalServerError)
-		return
-	}
-	var ext string
-	switch http.DetectContentType(buff) {
-	case "image/jpeg":
-		ext = ".jpg"
-	case "image/png":
-		ext = ".png"
+	switch req.ContentType {
+	case "image/jpeg", "image/png":
 	default:
-		http.Error(w, "Invalid file type, only JPEG and PNG are supported.", http.StatusUnsupportedMediaType)
+		http.Error(w, "content_type must be image/jpeg or image/png", http.StatusBadRequest)
 		return
 	}
 
-	// Rewind after sniffing, then read the whole file into memory.
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		http.Error(w, "Error processing file", http.StatusInternalServerError)
-		return
-	}
-	data, err := io.ReadAll(file)
-	if err != nil {
-		http.Error(w, "Error reading the uploaded file", http.StatusInternalServerError)
-		return
-	}
-
-	// The request passed requireAuth, so the caller's id is in the context.
 	userID, _ := UserIDFromContext(r.Context())
-
-	// Process stores the original + starts the async resize workflow, then returns.
-	id, err := s.uploads.Process(r.Context(), data, fileHeader.Filename, ext, userID)
+	id, url, err := s.uploads.Negotiate(r.Context(), req.Filename, req.ContentType, userID)
 	if err != nil {
-		http.Error(w, "Error processing upload", http.StatusInternalServerError)
+		log.Printf("createUpload: %v", err)
+		http.Error(w, "could not create upload", http.StatusInternalServerError)
 		return
 	}
+	writeJSON(w, http.StatusCreated, createUploadResponse{
+		ID:        id,
+		URL:       url,
+		ExpiresIn: upload.PresignTTLSeconds(),
+	})
+}
 
-	// 202 Accepted: work is underway; poll GET /images/{id}/status for completion.
-	writeJSON(w, http.StatusAccepted, uploadResponse{ID: id})
+// completeUpload signals the workflow that the client finished uploading.
+func (s *Server) completeUpload(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if len(id) != 32 {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+	if _, _, ok := s.requireOwner(w, r, id); !ok {
+		return
+	}
+	if err := s.uploads.Complete(r.Context(), id); err != nil {
+		http.Error(w, "could not complete upload", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func (s *Server) images(w http.ResponseWriter, r *http.Request) {
@@ -176,8 +145,8 @@ func (s *Server) images(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid ID", http.StatusBadRequest)
 		return
 	}
-
-	if _, ok := s.requireOwner(w, r, id); !ok {
+	_, contentType, ok := s.requireOwner(w, r, id)
+	if !ok {
 		return
 	}
 
@@ -189,16 +158,13 @@ func (s *Server) images(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path, err := s.store.Path(id, size)
+	data, err := s.objects.Get(r.Context(), id+"/"+size)
 	if err != nil {
-		if errors.Is(err, storage.ErrNotFound) {
-			http.Error(w, "Image not found", http.StatusNotFound)
-			return
-		}
-		http.Error(w, "Server error", http.StatusInternalServerError)
+		http.Error(w, "Image not found", http.StatusNotFound)
 		return
 	}
-	http.ServeFile(w, r, path)
+	w.Header().Set("Content-Type", contentType)
+	w.Write(data)
 }
 
 func (s *Server) imageStatus(w http.ResponseWriter, r *http.Request) {
@@ -207,8 +173,7 @@ func (s *Server) imageStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid ID", http.StatusBadRequest)
 		return
 	}
-
-	st, ok := s.requireOwner(w, r, id)
+	st, _, ok := s.requireOwner(w, r, id)
 	if !ok {
 		return
 	}
@@ -216,24 +181,24 @@ func (s *Server) imageStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // requireOwner looks up an upload and checks the caller owns it. It returns the
-// upload's status and ok=true only if the caller is the owner; otherwise it has
-// already written a 404 response and returns ok=false. A 404 (not 403) is used
-// deliberately so we never reveal that an id exists but belongs to someone else.
-func (s *Server) requireOwner(w http.ResponseWriter, r *http.Request, id string) (status string, ok bool) {
-	st, ownerID, err := s.reads.Get(r.Context(), id)
+// status and content type only if the caller is the owner; otherwise it has
+// already written a 404 (not 403, to avoid revealing an id exists) and returns
+// ok=false.
+func (s *Server) requireOwner(w http.ResponseWriter, r *http.Request, id string) (status, contentType string, ok bool) {
+	st, ownerID, ct, err := s.reads.Get(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, metadata.ErrNotFound) {
 			http.Error(w, "Not found", http.StatusNotFound)
 		} else {
 			http.Error(w, "Server error", http.StatusInternalServerError)
 		}
-		return "", false
+		return "", "", false
 	}
 
 	callerID, _ := UserIDFromContext(r.Context())
 	if ownerID != callerID {
 		http.Error(w, "Not found", http.StatusNotFound)
-		return "", false
+		return "", "", false
 	}
-	return st, true
+	return st, ct, true
 }

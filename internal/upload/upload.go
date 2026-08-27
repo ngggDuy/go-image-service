@@ -2,58 +2,66 @@ package upload
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"go-image-service/internal/id"
 )
 
-// Store saves image bytes under an id and a name (e.g. "original").
-type Store interface {
-	Save(id, name, ext string, data []byte) error
-}
+const presignTTL = 15 * time.Minute
 
 // Repository persists metadata about an upload.
 type Repository interface {
-	Create(ctx context.Context, id, filename, ext, status, userID string) error
+	Create(ctx context.Context, id, filename, contentType, status, userID string) error
 }
 
-// UploadStarter kicks off the asynchronous resize pipeline (a Temporal workflow
-// in production). It returns as soon as the work is scheduled.
-type UploadStarter interface {
-	Start(ctx context.Context, id, ext, filename string) error
+// Presigner issues presigned URLs for direct client<->object-store transfers.
+type Presigner interface {
+	Presign(ctx context.Context, key, method string, ttl time.Duration) (string, error)
 }
 
-// Service handles an upload: it stores the original, records the upload as
-// "processing", and starts the async resize pipeline. It does NOT wait for the
-// resizes — those run in the workflow and flip the status to "complete".
+// Pipeline starts and signals the async resize workflow (Temporal in production).
+type Pipeline interface {
+	Start(ctx context.Context, id, contentType, filename string) error
+	Signal(ctx context.Context, id string) error
+}
+
+// Service negotiates presigned uploads and forwards completion signals. It never
+// handles image bytes — the client PUTs them straight to the object store.
 type Service struct {
-	store   Store
 	repo    Repository
-	starter UploadStarter
+	objects Presigner
+	pipe    Pipeline
 }
 
-func New(s Store, repo Repository, starter UploadStarter) *Service {
-	return &Service{store: s, repo: repo, starter: starter}
+func New(repo Repository, objects Presigner, pipe Pipeline) *Service {
+	return &Service{repo: repo, objects: objects, pipe: pipe}
 }
 
-// Process stores the original, records "processing", and starts the pipeline.
-// Returns the new upload id immediately (the caller responds 202 Accepted).
-func (s *Service) Process(ctx context.Context, data []byte, filename, ext, userID string) (string, error) {
+// Negotiate records a pending upload, starts the workflow (which blocks waiting
+// for the completion signal), and returns a presigned PUT URL for the client.
+func (s *Service) Negotiate(ctx context.Context, filename, contentType, userID string) (uploadID, url string, err error) {
 	newID, err := id.New()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-
-	if err := s.store.Save(newID, "original", ext, data); err != nil {
-		return "", err
+	if err := s.repo.Create(ctx, newID, filename, contentType, "pending", userID); err != nil {
+		return "", "", fmt.Errorf("create metadata: %w", err)
 	}
-
-	if err := s.repo.Create(ctx, newID, filename, ext, "processing", userID); err != nil {
-		return "", err
+	if err := s.pipe.Start(ctx, newID, contentType, filename); err != nil {
+		return "", "", fmt.Errorf("start workflow: %w", err)
 	}
-
-	if err := s.starter.Start(ctx, newID, ext, filename); err != nil {
-		return "", err
+	url, err = s.objects.Presign(ctx, newID+"/original", "PUT", presignTTL)
+	if err != nil {
+		return "", "", fmt.Errorf("presign: %w", err)
 	}
-
-	return newID, nil
+	return newID, url, nil
 }
+
+// Complete signals the workflow that the client has finished uploading the bytes.
+func (s *Service) Complete(ctx context.Context, id string) error {
+	return s.pipe.Signal(ctx, id)
+}
+
+// PresignTTLSeconds is the presigned URL lifetime in seconds, for the API response.
+func PresignTTLSeconds() int { return int(presignTTL.Seconds()) }

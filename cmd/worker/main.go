@@ -21,38 +21,40 @@ import (
 func main() {
 	cfg := config.Load()
 
-	// gRPC connection to the image processing service.
 	conn, err := grpc.NewClient(cfg.ImageServiceAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer conn.Close()
 
-	// Database + file storage (activities write results + status here).
 	pool, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer pool.Close()
 
-	store, err := storage.New("uploads")
+	objects, err := storage.NewMinioStore(
+		cfg.MinioEndpoint, cfg.MinioPublicEndpoint,
+		cfg.MinioAccessKey, cfg.MinioSecretKey, cfg.MinioBucket, false,
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
+	if err := objects.EnsureBucket(context.Background()); err != nil {
+		log.Fatalf("ensure bucket: %v", err)
+	}
 
-	// Dial into the Temporal client + worker.
 	c, err := client.Dial(client.Options{HostPort: cfg.TemporalAddress})
 	if err != nil {
 		log.Fatalf("dial temporal: %v", err)
 	}
 	defer c.Close()
 
-	// Create worker and register workflows and activities
 	w := worker.New(c, cfg.TaskQueue, worker.Options{})
 	w.RegisterWorkflow(pipeline.UploadWorkflow)
 	w.RegisterActivity(&pipeline.Activities{
 		Resizer: resizer.New(imageprocess.NewResizerClient(conn)),
-		Store:   store,
+		Objects: objects,
 		Repo:    metadata.New(pool),
 	})
 

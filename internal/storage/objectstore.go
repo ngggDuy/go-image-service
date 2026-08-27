@@ -41,11 +41,17 @@ type MinioStore struct {
 
 func NewMinioStore(internalEndpoint, publicEndpoint, accessKey, secretKey, bucket string, useSSL bool) (*MinioStore, error) {
 	creds := credentials.NewStaticV4(accessKey, secretKey, "")
-	ops, err := minio.New(internalEndpoint, &minio.Options{Creds: creds, Secure: useSSL})
+	// Region is set explicitly so presigning never triggers a GetBucketLocation
+	// network call — presigning must stay a purely local computation, especially
+	// on the presign client whose public endpoint isn't reachable from here.
+	opts := func(endpoint string) *minio.Options {
+		return &minio.Options{Creds: creds, Secure: useSSL, Region: "us-east-1"}
+	}
+	ops, err := minio.New(internalEndpoint, opts(internalEndpoint))
 	if err != nil {
 		return nil, err
 	}
-	presign, err := minio.New(publicEndpoint, &minio.Options{Creds: creds, Secure: useSSL})
+	presign, err := minio.New(publicEndpoint, opts(publicEndpoint))
 	if err != nil {
 		return nil, err
 	}

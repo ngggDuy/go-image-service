@@ -8,10 +8,10 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS uploads (
-    id                  text        PRIMARY KEY, 
-    original_filename   text        NOT NULL, 
-    ext                 text        NOT NULL, 
-    status              text        NOT NULL, 
+    id                  text        PRIMARY KEY,
+    original_filename   text        NOT NULL,
+    content_type        text        NOT NULL,
+    status              text        NOT NULL,
     created_at          timestamptz NOT NULL DEFAULT now(),
     user_id             text        NOT NULL REFERENCES users(id) ON DELETE CASCADE
 );

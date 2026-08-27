@@ -20,14 +20,18 @@ import (
 func main() {
 	cfg := config.Load()
 
-	// Temporal client (used to start the resize workflow).
 	tc, err := client.Dial(client.Options{HostPort: cfg.TemporalAddress})
 	if err != nil {
 		log.Fatalf("dial temporal: %v", err)
 	}
 	defer tc.Close()
 
-	// Database connection pool.
+	authClient, err := authclient.Dial(cfg.AuthServiceAddr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer authClient.Close()
+
 	pool, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
 	if err != nil {
 		log.Fatal(err)
@@ -37,24 +41,21 @@ func main() {
 		log.Fatalf("cannot reach postgres: %v", err)
 	}
 
-	// File storage on disk.
-	store, err := storage.New("uploads")
+	// Object storage (MinIO). Ensure the bucket exists at startup.
+	objects, err := storage.NewMinioStore(
+		cfg.MinioEndpoint, cfg.MinioPublicEndpoint,
+		cfg.MinioAccessKey, cfg.MinioSecretKey, cfg.MinioBucket, false,
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	// Dial the auth service (gRPC); the httpserver no longer owns auth logic.
-	authClient, err := authclient.Dial(cfg.AuthServiceAddr)
-	if err != nil {
-		log.Fatal(err)
+	if err := objects.EnsureBucket(context.Background()); err != nil {
+		log.Fatalf("ensure bucket: %v", err)
 	}
-	defer authClient.Close()
 
-	// Wire the upload service via temporal and the HTTP server.
 	repo := metadata.New(pool)
-	svc := upload.New(store, repo, pipeline.NewOrchestrator(tc, cfg.TaskQueue))
-
-	server := transport.New(authClient, svc, store, repo)
+	uploadSvc := upload.New(repo, objects, pipeline.NewOrchestrator(tc, cfg.TaskQueue))
+	server := transport.New(authClient, uploadSvc, repo, objects)
 
 	log.Printf("http server listening on %s", cfg.HTTPAddr)
 	log.Fatal(http.ListenAndServe(cfg.HTTPAddr, server.Routes()))

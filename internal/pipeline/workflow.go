@@ -7,14 +7,17 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
-// UploadInput is the workflow input. It carries only a REFERENCE to the already
-// saved original (id + ext) — never the image bytes. Temporal stores inputs in
-// workflow history and has payload size limits, so large blobs stay on disk and
-// activities read/write them there.
+const (
+	completeSignal = "upload-complete"
+	uploadTimeout  = 15 * time.Minute
+)
+
+// UploadInput carries only references (id + content type), never image bytes —
+// the bytes live in object storage; activities read/write them there.
 type UploadInput struct {
-	ID       string
-	Ext      string
-	Filename string
+	ID          string
+	ContentType string
+	Filename    string
 }
 
 type resizeSpec struct {
@@ -27,37 +30,62 @@ var sizes = []resizeSpec{
 	{Name: "25x25", W: 25, H: 25},
 }
 
-// UploadWorkflow resizes the uploaded image into every size IN PARALLEL, then
-// marks the upload complete. If any resize ultimately fails, it marks it failed.
+// UploadWorkflow starts BEFORE the bytes exist. It waits for the upload-complete
+// signal (or abandons after a timeout), validates the uploaded object, resizes
+// it in parallel, and marks the upload complete.
 func UploadWorkflow(ctx workflow.Context, in UploadInput) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 2 * time.Minute, // generous cap for large images
-		RetryPolicy: &temporal.RetryPolicy{
-			InitialInterval:    time.Second,
-			BackoffCoefficient: 2.0,
-			MaximumAttempts:    3,
-		},
+		StartToCloseTimeout: 2 * time.Minute,
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 3},
 	})
+	var a *Activities
 
-	var a *Activities // nil receiver: used only to name the activities for lookup
+	// Wait for the client's completion signal, or give up after the timeout.
+	timerCtx, cancelTimer := workflow.WithCancel(ctx)
+	timer := workflow.NewTimer(timerCtx, uploadTimeout)
+	sigCh := workflow.GetSignalChannel(ctx, completeSignal)
 
-	// Fan out: start every resize activity at once, collect their futures.
-	futures := make([]workflow.Future, 0, len(sizes))
-	for _, s := range sizes {
-		f := workflow.ExecuteActivity(ctx, a.Resize, ResizeInput{
-			ID: in.ID, Ext: in.Ext, Name: s.Name, Width: s.W, Height: s.H,
-		})
-		futures = append(futures, f)
+	signaled := false
+	sel := workflow.NewSelector(ctx)
+	sel.AddReceive(sigCh, func(c workflow.ReceiveChannel, _ bool) {
+		c.Receive(ctx, nil)
+		signaled = true
+	})
+	sel.AddFuture(timer, func(workflow.Future) {})
+	sel.Select(ctx)
+
+	if !signaled {
+		return workflow.ExecuteActivity(ctx, a.Abandon, in.ID).Get(ctx, nil)
+	}
+	cancelTimer() // avoid a zombie 15-minute timer lingering in history
+
+	// Validate — its own policy: a rejection is permanent, so don't retry it.
+	valCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
+	})
+	if err := workflow.ExecuteActivity(valCtx, a.Validate,
+		ValidateInput{ID: in.ID, ContentType: in.ContentType}).Get(ctx, nil); err != nil {
+		return err // Validate already set status "rejected" and deleted the object
 	}
 
-	// Fan in: wait for all of them.
+	if err := workflow.ExecuteActivity(ctx, a.Processing, in.ID).Get(ctx, nil); err != nil {
+		return err
+	}
+
+	// Resize fan-out.
+	futures := make([]workflow.Future, 0, len(sizes))
+	for _, s := range sizes {
+		futures = append(futures, workflow.ExecuteActivity(ctx, a.Resize, ResizeInput{
+			ID: in.ID, ContentType: in.ContentType, Name: s.Name, Width: s.W, Height: s.H,
+		}))
+	}
 	var resizeErr error
 	for _, f := range futures {
 		if err := f.Get(ctx, nil); err != nil {
 			resizeErr = err
 		}
 	}
-
 	if resizeErr != nil {
 		_ = workflow.ExecuteActivity(ctx, a.Fail, in.ID).Get(ctx, nil)
 		return resizeErr

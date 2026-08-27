@@ -12,47 +12,10 @@ package upload
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	gomock "go.uber.org/mock/gomock"
 )
-
-// MockStore is a mock of Store interface.
-type MockStore struct {
-	ctrl     *gomock.Controller
-	recorder *MockStoreMockRecorder
-	isgomock struct{}
-}
-
-// MockStoreMockRecorder is the mock recorder for MockStore.
-type MockStoreMockRecorder struct {
-	mock *MockStore
-}
-
-// NewMockStore creates a new mock instance.
-func NewMockStore(ctrl *gomock.Controller) *MockStore {
-	mock := &MockStore{ctrl: ctrl}
-	mock.recorder = &MockStoreMockRecorder{mock}
-	return mock
-}
-
-// EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockStore) EXPECT() *MockStoreMockRecorder {
-	return m.recorder
-}
-
-// Save mocks base method.
-func (m *MockStore) Save(id, name, ext string, data []byte) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Save", id, name, ext, data)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Save indicates an expected call of Save.
-func (mr *MockStoreMockRecorder) Save(id, name, ext, data any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Save", reflect.TypeOf((*MockStore)(nil).Save), id, name, ext, data)
-}
 
 // MockRepository is a mock of Repository interface.
 type MockRepository struct {
@@ -79,53 +42,106 @@ func (m *MockRepository) EXPECT() *MockRepositoryMockRecorder {
 }
 
 // Create mocks base method.
-func (m *MockRepository) Create(ctx context.Context, id, filename, ext, status, userID string) error {
+func (m *MockRepository) Create(ctx context.Context, id, filename, contentType, status, userID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Create", ctx, id, filename, ext, status, userID)
+	ret := m.ctrl.Call(m, "Create", ctx, id, filename, contentType, status, userID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Create indicates an expected call of Create.
-func (mr *MockRepositoryMockRecorder) Create(ctx, id, filename, ext, status, userID any) *gomock.Call {
+func (mr *MockRepositoryMockRecorder) Create(ctx, id, filename, contentType, status, userID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockRepository)(nil).Create), ctx, id, filename, ext, status, userID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockRepository)(nil).Create), ctx, id, filename, contentType, status, userID)
 }
 
-// MockUploadStarter is a mock of UploadStarter interface.
-type MockUploadStarter struct {
+// MockPresigner is a mock of Presigner interface.
+type MockPresigner struct {
 	ctrl     *gomock.Controller
-	recorder *MockUploadStarterMockRecorder
+	recorder *MockPresignerMockRecorder
 	isgomock struct{}
 }
 
-// MockUploadStarterMockRecorder is the mock recorder for MockUploadStarter.
-type MockUploadStarterMockRecorder struct {
-	mock *MockUploadStarter
+// MockPresignerMockRecorder is the mock recorder for MockPresigner.
+type MockPresignerMockRecorder struct {
+	mock *MockPresigner
 }
 
-// NewMockUploadStarter creates a new mock instance.
-func NewMockUploadStarter(ctrl *gomock.Controller) *MockUploadStarter {
-	mock := &MockUploadStarter{ctrl: ctrl}
-	mock.recorder = &MockUploadStarterMockRecorder{mock}
+// NewMockPresigner creates a new mock instance.
+func NewMockPresigner(ctrl *gomock.Controller) *MockPresigner {
+	mock := &MockPresigner{ctrl: ctrl}
+	mock.recorder = &MockPresignerMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockUploadStarter) EXPECT() *MockUploadStarterMockRecorder {
+func (m *MockPresigner) EXPECT() *MockPresignerMockRecorder {
 	return m.recorder
 }
 
-// Start mocks base method.
-func (m *MockUploadStarter) Start(ctx context.Context, id, ext, filename string) error {
+// Presign mocks base method.
+func (m *MockPresigner) Presign(ctx context.Context, key, method string, ttl time.Duration) (string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Start", ctx, id, ext, filename)
+	ret := m.ctrl.Call(m, "Presign", ctx, key, method, ttl)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Presign indicates an expected call of Presign.
+func (mr *MockPresignerMockRecorder) Presign(ctx, key, method, ttl any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Presign", reflect.TypeOf((*MockPresigner)(nil).Presign), ctx, key, method, ttl)
+}
+
+// MockPipeline is a mock of Pipeline interface.
+type MockPipeline struct {
+	ctrl     *gomock.Controller
+	recorder *MockPipelineMockRecorder
+	isgomock struct{}
+}
+
+// MockPipelineMockRecorder is the mock recorder for MockPipeline.
+type MockPipelineMockRecorder struct {
+	mock *MockPipeline
+}
+
+// NewMockPipeline creates a new mock instance.
+func NewMockPipeline(ctrl *gomock.Controller) *MockPipeline {
+	mock := &MockPipeline{ctrl: ctrl}
+	mock.recorder = &MockPipelineMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockPipeline) EXPECT() *MockPipelineMockRecorder {
+	return m.recorder
+}
+
+// Signal mocks base method.
+func (m *MockPipeline) Signal(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Signal", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Signal indicates an expected call of Signal.
+func (mr *MockPipelineMockRecorder) Signal(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Signal", reflect.TypeOf((*MockPipeline)(nil).Signal), ctx, id)
+}
+
+// Start mocks base method.
+func (m *MockPipeline) Start(ctx context.Context, id, contentType, filename string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Start", ctx, id, contentType, filename)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Start indicates an expected call of Start.
-func (mr *MockUploadStarterMockRecorder) Start(ctx, id, ext, filename any) *gomock.Call {
+func (mr *MockPipelineMockRecorder) Start(ctx, id, contentType, filename any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Start", reflect.TypeOf((*MockUploadStarter)(nil).Start), ctx, id, ext, filename)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Start", reflect.TypeOf((*MockPipeline)(nil).Start), ctx, id, contentType, filename)
 }

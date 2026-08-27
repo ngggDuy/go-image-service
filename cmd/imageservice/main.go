@@ -16,7 +16,7 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	s := grpc.NewServer(grpc.MaxRecvMsgSize(20 * 1024 * 1024))
+	s := grpc.NewServer(grpc.MaxRecvMsgSize(200 * 1024 * 1024)) // allow heavy images
 	imageprocess.RegisterResizerServer(s, &imaging.Server{})
 
 	log.Println("image service listening on :50051")
