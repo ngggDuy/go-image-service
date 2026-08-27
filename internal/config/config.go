@@ -10,6 +10,8 @@ type Config struct {
 	DatabaseURL      string // Postgres connection string
 	TemporalAddress  string // Temporal frontend gRPC address
 	TaskQueue        string // Temporal task queue name
+	JWTSecret        string // secret key used to sign/verify JWTs (auth service only)
+	AuthServiceAddr  string // gRPC address of the auth service
 }
 
 // Load reads configuration from the environment, falling back to defaults.
@@ -20,6 +22,8 @@ func Load() Config {
 		DatabaseURL:      getenv("DATABASE_URL", "postgres://imageservice:secret@localhost:5432/imageservice"),
 		TemporalAddress:  getenv("TEMPORAL_ADDRESS", "localhost:7233"),
 		TaskQueue:        getenv("TASK_QUEUE", "image-resize"),
+		JWTSecret:        getenv("JWT_SECRET", "dev-secret-change-me-in-prod"),
+		AuthServiceAddr:  getenv("AUTH_SERVICE_ADDR", "localhost:50052"),
 	}
 }
 

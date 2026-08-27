@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"unicode/utf8"
 
+	"go-image-service/internal/auth"
 	"go-image-service/internal/metadata"
 	"go-image-service/internal/storage"
 )
@@ -73,6 +74,36 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 
 }
 
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+type loginResponse struct {
+	Token string `json:"token"`
+}
+
+func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	var req loginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	token, err := s.auth.Login(r.Context(), req.Email, req.Password)
+	if err != nil {
+		// Same 401 whether the email is unknown or the password is wrong —
+		// never reveal which, to prevent account enumeration.
+		if errors.Is(err, auth.ErrInvalidCredentials) {
+			http.Error(w, "invalid email or password", http.StatusUnauthorized)
+			return
+		}
+		http.Error(w, "could not log in", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, loginResponse{Token: token})
+}
+
 func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 
@@ -125,8 +156,11 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The request passed requireAuth, so the caller's id is in the context.
+	userID, _ := UserIDFromContext(r.Context())
+
 	// Process stores the original + starts the async resize workflow, then returns.
-	id, err := s.uploads.Process(r.Context(), data, fileHeader.Filename, ext)
+	id, err := s.uploads.Process(r.Context(), data, fileHeader.Filename, ext, userID)
 	if err != nil {
 		http.Error(w, "Error processing upload", http.StatusInternalServerError)
 		return
@@ -140,6 +174,10 @@ func (s *Server) images(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if len(id) != 32 {
 		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	if _, ok := s.requireOwner(w, r, id); !ok {
 		return
 	}
 
@@ -170,14 +208,32 @@ func (s *Server) imageStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	st, err := s.status.GetStatus(r.Context(), id)
-	if err != nil {
-		if errors.Is(err, metadata.ErrNotFound) {
-			http.Error(w, "Upload not found", http.StatusNotFound)
-			return
-		}
-		http.Error(w, "Server error", http.StatusInternalServerError)
+	st, ok := s.requireOwner(w, r, id)
+	if !ok {
 		return
 	}
 	writeJSON(w, http.StatusOK, statusResponse{ID: id, Status: st})
+}
+
+// requireOwner looks up an upload and checks the caller owns it. It returns the
+// upload's status and ok=true only if the caller is the owner; otherwise it has
+// already written a 404 response and returns ok=false. A 404 (not 403) is used
+// deliberately so we never reveal that an id exists but belongs to someone else.
+func (s *Server) requireOwner(w http.ResponseWriter, r *http.Request, id string) (status string, ok bool) {
+	st, ownerID, err := s.reads.Get(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, metadata.ErrNotFound) {
+			http.Error(w, "Not found", http.StatusNotFound)
+		} else {
+			http.Error(w, "Server error", http.StatusInternalServerError)
+		}
+		return "", false
+	}
+
+	callerID, _ := UserIDFromContext(r.Context())
+	if ownerID != callerID {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return "", false
+	}
+	return st, true
 }

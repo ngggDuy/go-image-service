@@ -13,7 +13,7 @@ type Store interface {
 
 // Repository persists metadata about an upload.
 type Repository interface {
-	Create(ctx context.Context, id, filename, ext, status string) error
+	Create(ctx context.Context, id, filename, ext, status, userID string) error
 }
 
 // UploadStarter kicks off the asynchronous resize pipeline (a Temporal workflow
@@ -37,7 +37,7 @@ func New(s Store, repo Repository, starter UploadStarter) *Service {
 
 // Process stores the original, records "processing", and starts the pipeline.
 // Returns the new upload id immediately (the caller responds 202 Accepted).
-func (s *Service) Process(ctx context.Context, data []byte, filename, ext string) (string, error) {
+func (s *Service) Process(ctx context.Context, data []byte, filename, ext, userID string) (string, error) {
 	newID, err := id.New()
 	if err != nil {
 		return "", err
@@ -47,7 +47,7 @@ func (s *Service) Process(ctx context.Context, data []byte, filename, ext string
 		return "", err
 	}
 
-	if err := s.repo.Create(ctx, newID, filename, ext, "processing"); err != nil {
+	if err := s.repo.Create(ctx, newID, filename, ext, "processing", userID); err != nil {
 		return "", err
 	}
 

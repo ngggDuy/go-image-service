@@ -79,17 +79,17 @@ func (m *MockRepository) EXPECT() *MockRepositoryMockRecorder {
 }
 
 // Create mocks base method.
-func (m *MockRepository) Create(ctx context.Context, id, filename, ext, status string) error {
+func (m *MockRepository) Create(ctx context.Context, id, filename, ext, status, userID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Create", ctx, id, filename, ext, status)
+	ret := m.ctrl.Call(m, "Create", ctx, id, filename, ext, status, userID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Create indicates an expected call of Create.
-func (mr *MockRepositoryMockRecorder) Create(ctx, id, filename, ext, status any) *gomock.Call {
+func (mr *MockRepositoryMockRecorder) Create(ctx, id, filename, ext, status, userID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockRepository)(nil).Create), ctx, id, filename, ext, status)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockRepository)(nil).Create), ctx, id, filename, ext, status, userID)
 }
 
 // MockUploadStarter is a mock of UploadStarter interface.

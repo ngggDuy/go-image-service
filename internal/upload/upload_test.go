@@ -12,12 +12,10 @@ func TestProcess(t *testing.T) {
 	const (
 		filename = "photo.jpg"
 		ext      = ".jpg"
+		userID   = "user-1"
 	)
 	data := []byte("original-bytes")
 
-	// Each case declares the calls it expects. gomock fails the test if an
-	// expected call never happens, or if the code makes an unexpected call — so
-	// the failure cases also prove Process stops at the first error.
 	tests := []struct {
 		name    string
 		setup   func(s *MockStore, repo *MockRepository, starter *MockUploadStarter)
@@ -26,9 +24,8 @@ func TestProcess(t *testing.T) {
 		{
 			name: "success: saves original, records processing, starts workflow",
 			setup: func(s *MockStore, repo *MockRepository, starter *MockUploadStarter) {
-				// The id is random, so match it with gomock.Any().
 				s.EXPECT().Save(gomock.Any(), "original", ext, data).Return(nil)
-				repo.EXPECT().Create(gomock.Any(), gomock.Any(), filename, ext, "processing").Return(nil)
+				repo.EXPECT().Create(gomock.Any(), gomock.Any(), filename, ext, "processing", userID).Return(nil)
 				starter.EXPECT().Start(gomock.Any(), gomock.Any(), ext, filename).Return(nil)
 			},
 		},
@@ -43,7 +40,7 @@ func TestProcess(t *testing.T) {
 			name: "stops when recording metadata fails",
 			setup: func(s *MockStore, repo *MockRepository, starter *MockUploadStarter) {
 				s.EXPECT().Save(gomock.Any(), "original", ext, data).Return(nil)
-				repo.EXPECT().Create(gomock.Any(), gomock.Any(), filename, ext, "processing").Return(errors.New("db down"))
+				repo.EXPECT().Create(gomock.Any(), gomock.Any(), filename, ext, "processing", userID).Return(errors.New("db down"))
 			},
 			wantErr: true,
 		},
@@ -51,7 +48,7 @@ func TestProcess(t *testing.T) {
 			name: "stops when starting the workflow fails",
 			setup: func(s *MockStore, repo *MockRepository, starter *MockUploadStarter) {
 				s.EXPECT().Save(gomock.Any(), "original", ext, data).Return(nil)
-				repo.EXPECT().Create(gomock.Any(), gomock.Any(), filename, ext, "processing").Return(nil)
+				repo.EXPECT().Create(gomock.Any(), gomock.Any(), filename, ext, "processing", userID).Return(nil)
 				starter.EXPECT().Start(gomock.Any(), gomock.Any(), ext, filename).Return(errors.New("temporal down"))
 			},
 			wantErr: true,
@@ -66,7 +63,7 @@ func TestProcess(t *testing.T) {
 			starter := NewMockUploadStarter(ctrl)
 			tc.setup(s, repo, starter)
 
-			id, err := New(s, repo, starter).Process(context.Background(), data, filename, ext)
+			id, err := New(s, repo, starter).Process(context.Background(), data, filename, ext, userID)
 
 			if tc.wantErr {
 				if err == nil {

@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package auth;
+
+option go_package = "go-image-service/gen/authpb";
+
+// AuthService is the authN/authZ backend. The HTTP server is a gRPC client of it:
+// it forwards register/login, and verifies every protected request's token here.
+service AuthService {
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc Verify(VerifyRequest) returns (VerifyResponse);
+}
+
+message RegisterRequest {
+  string email = 1;
+  string password = 2;
+}
+message RegisterResponse {
+  string user_id = 1;
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+}
+message LoginResponse {
+  string token = 1;
+}
+
+message VerifyRequest {
+  string token = 1;
+}
+message VerifyResponse {
+  string user_id = 1;
+}

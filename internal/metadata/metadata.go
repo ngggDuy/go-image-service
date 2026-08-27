@@ -20,13 +20,13 @@ func New(db *pgxpool.Pool) *Repository {
 	return &Repository{db: db}
 }
 
-// Create inserts a metadata record for one upload. Parameterized placeholders
-// ($1..$4) keep user input from being interpreted as SQL.
-func (r *Repository) Create(ctx context.Context, id, filename, ext, status string) error {
+// Create inserts a metadata record for one upload, owned by userID.
+// Parameterized placeholders ($1..$5) keep user input from being interpreted as SQL.
+func (r *Repository) Create(ctx context.Context, id, filename, ext, status, userID string) error {
 	_, err := r.db.Exec(ctx,
-		`INSERT INTO uploads (id, original_filename, ext, status)
-		 VALUES ($1, $2, $3, $4)`,
-		id, filename, ext, status,
+		`INSERT INTO uploads (id, original_filename, ext, status, user_id)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		id, filename, ext, status, userID,
 	)
 	return err
 }
@@ -37,12 +37,13 @@ func (r *Repository) UpdateStatus(ctx context.Context, id, status string) error 
 	return err
 }
 
-// GetStatus returns the current status of an upload, or ErrNotFound.
-func (r *Repository) GetStatus(ctx context.Context, id string) (string, error) {
-	var status string
-	err := r.db.QueryRow(ctx, `SELECT status FROM uploads WHERE id = $1`, id).Scan(&status)
+// Get returns the status and owner (user id) of an upload, or ErrNotFound.
+func (r *Repository) Get(ctx context.Context, id string) (status, userID string, err error) {
+	err = r.db.QueryRow(ctx,
+		`SELECT status, user_id FROM uploads WHERE id = $1`, id,
+	).Scan(&status, &userID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", ErrNotFound
+		return "", "", ErrNotFound
 	}
-	return status, err
+	return status, userID, err
 }

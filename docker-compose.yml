@@ -45,6 +45,17 @@ services:
       context: .
       dockerfile: Dockerfile.imageservice
 
+  authservice:
+    build:
+      context: .
+      dockerfile: Dockerfile.authservice
+    environment:
+      DATABASE_URL: postgres://imageservice:secret@postgres:5432/imageservice
+      JWT_SECRET: dev-secret-change-me-in-prod # the secret lives ONLY here now
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   worker:
     build:
       context: .
@@ -75,6 +86,7 @@ services:
     environment:
       DATABASE_URL: postgres://imageservice:secret@postgres:5432/imageservice
       TEMPORAL_ADDRESS: temporal:7233
+      AUTH_SERVICE_ADDR: authservice:50052
     volumes:
       - uploads:/app/uploads
     restart: on-failure # retry until Temporal's frontend is ready
@@ -82,6 +94,8 @@ services:
       postgres:
         condition: service_healthy
       temporal:
+        condition: service_started
+      authservice:
         condition: service_started
 
 volumes:
