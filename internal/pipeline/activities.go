@@ -11,7 +11,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 )
 
-const maxImageBytes = 100 * 1024 * 1024 // 100 MB — presigned uploads let us handle heavy images
+const maxImageBytes = 200 * 1024 * 1024 // 200 MB — presigned uploads let us handle heavy images
 
 type ValidateInput struct {
 	ID          string
@@ -45,7 +45,7 @@ func (a *Activities) Validate(ctx context.Context, in ValidateInput) error {
 	}
 	orig := objectKey(in.ID, "original")
 
-	sniff, err := a.Objects.GetRange(ctx, orig, 512)
+	sniff, err := a.Objects.GetFirstNBytes(ctx, orig, 512)
 	if err != nil {
 		return err
 	}

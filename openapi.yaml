@@ -109,29 +109,6 @@ paths:
         '500':
           description: Server error while signalling the workflow
 
-  /internal/s3-events:
-    post:
-      summary: MinIO `ObjectCreated` webhook (internal)
-      description: |
-        Server-side alternative to `POST /uploads/{id}/complete`, so an upload still
-        progresses if the client PUTs the bytes and then disappears. Sends the same
-        `upload-complete` signal. Not part of the public API — it should not be reachable
-        from outside the cluster.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              description: MinIO bucket-notification event payload
-      responses:
-        '204':
-          description: Event accepted
-        '400':
-          description: Unparseable event payload
-        '500':
-          description: Server error while signalling the workflow
-
   /images/{id}/status:
     get:
       summary: Poll the processing status of an upload

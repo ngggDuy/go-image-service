@@ -30,8 +30,7 @@ func (o *Orchestrator) Start(ctx context.Context, id, contentType, filename stri
 }
 
 // Signal tells the workflow the bytes were uploaded. If the workflow already
-// finished (NotFound), the work is done, so we treat it as success — this is
-// what makes POST /uploads/{id}/complete idempotent.
+// finished (NotFound), the work is done, so we treat it as success.
 func (o *Orchestrator) Signal(ctx context.Context, id string) error {
 	err := o.client.SignalWorkflow(ctx, workflowID(id), "", completeSignal, nil)
 	var notFound *serviceerror.NotFound

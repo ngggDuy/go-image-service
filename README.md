@@ -13,7 +13,6 @@ The full, formal contract is in **[`openapi.yaml`](./openapi.yaml)**.
 |--------|------|---------|---------|--------|
 | `POST` | `/uploads` | `{"filename":"...","content_type":"image/jpeg"}` | `201` → `{"id":"...","url":"...","expires_in":900}` | `400`, `500` |
 | `POST` | `/uploads/{id}/complete` | — | `200` (idempotent) | `400`, `404`, `500` |
-| `POST` | `/internal/s3-events` | MinIO `ObjectCreated` webhook | `204` | `400`, `500` |
 | `GET` | `/images/{id}/status` | — | `200` → `{"id":"...","status":"..."}` | `400`, `404` |
 | `GET` | `/images/{id}?size=` | `size` = `original` \| `12x12` \| `25x25` | `200` → image bytes | `400`, `404` |
 | `GET` | `/health` | — | `200` → `{"status":"ok"}` | — |

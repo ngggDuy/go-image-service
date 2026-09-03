@@ -20,7 +20,6 @@ client uploads directly to MinIO, so the API never buffers, copies, or re-stream
                 │ 1 POST /uploads             │   {id}/12x12  {id}/25x25   │
                 │                             └─────────────┬─────────┬────┘
                 │ 3 POST /uploads/{id}/complete             │         │
-                │   3' webhook  ->  /internal/s3-events     │         │
                 │◄──────────────────────────────────────────┘         │
                 ▼                                                     │
  ┌────────────────────────────┐                                       │
@@ -75,9 +74,13 @@ Client ──Authorization: Bearer <jwt>──► httpserver
 ```
 POST /uploads               → {id, url, expires_in}    201
 POST /uploads/{id}/complete → signal workflow          200
-POST /internal/s3-events    → MinIO webhook → signal   204
 GET  /images/{id}/status    → unchanged
 ```
+
+> **Future / not built:** a MinIO `ObjectCreated` webhook → `POST /internal/s3-events`
+> that fires the same `upload-complete` signal server-side, so an upload still
+> progresses if the client PUTs the bytes and then disappears. For now the client's
+> explicit `/complete` call is the only completion trigger.
 
 ## Flow (one upload)
 
