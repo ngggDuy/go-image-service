@@ -50,3 +50,21 @@ func TestLoad_EnvOverrides(t *testing.T) {
 		})
 	}
 }
+
+func TestListenAddr(t *testing.T) {
+	tests := []struct {
+		name, port, fallback, want string
+	}{
+		{"PORT unset falls back", "", "50051", ":50051"},
+		{"PORT set wins", "8080", "50051", ":8080"},
+		{"PORT set wins over other fallback", "9090", "50052", ":9090"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("PORT", tc.port)
+			if got := ListenAddr(tc.fallback); got != tc.want {
+				t.Errorf("ListenAddr(%q) = %q, want %q", tc.fallback, got, tc.want)
+			}
+		})
+	}
+}

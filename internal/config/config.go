@@ -39,6 +39,16 @@ func Load() Config {
 	}
 }
 
+// ListenAddr returns the TCP address to listen on. Cloud Run injects PORT and
+// requires the container to listen on it; locally PORT is unset and we fall
+// back to the service's conventional port.
+func ListenAddr(fallback string) string {
+	if p := os.Getenv("PORT"); p != "" {
+		return ":" + p
+	}
+	return ":" + fallback
+}
+
 // getenv returns the value of the environment variable key, or fallback if it
 // is unset or empty.
 func getenv(key, fallback string) string {
