@@ -30,7 +30,8 @@ func main() {
 
 	svc := auth.NewService(user.New(pool), []byte(cfg.JWTSecret))
 
-	lis, err := net.Listen("tcp", ":50052")
+	addr := config.ListenAddr("50052")
+	lis, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
@@ -38,7 +39,7 @@ func main() {
 	s := grpc.NewServer()
 	authpb.RegisterAuthServiceServer(s, authgrpc.NewServer(svc))
 
-	log.Println("auth service listening on :50052")
+	log.Printf("auth service listening on %s", addr)
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}

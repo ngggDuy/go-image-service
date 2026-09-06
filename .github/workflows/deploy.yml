@@ -1,0 +1,111 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+# id-token: write is what allows this job to request a GitHub OIDC token.
+# Without it, authentication to GCP fails with a confusing "unable to get
+# credentials" error rather than a permissions message. No service-account
+# JSON key exists anywhere in this pipeline.
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  IMAGE_BASE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/services
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test
+        run: go test ./...
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
+
+      # --platform linux/amd64 is required: Cloud Run will not run an arm64
+      # image. The runner is amd64 so this is a no-op there, but it keeps the
+      # command identical to the one used locally on Apple Silicon.
+      # set -e plus an explicit loop so a failed build fails the job — piping
+      # docker build into another command would mask its exit status.
+      - name: Build and push images
+        run: |
+          set -euo pipefail
+          for svc in imageservice authservice httpserver worker; do
+            docker build --platform linux/amd64 \
+              -f "Dockerfile.${svc}" \
+              -t "${IMAGE_BASE}/${svc}:${GITHUB_SHA}" .
+            docker push "${IMAGE_BASE}/${svc}:${GITHUB_SHA}"
+          done
+
+      - name: Deploy imageservice
+        run: |
+          gcloud run deploy imageservice \
+            --image="${IMAGE_BASE}/imageservice:${GITHUB_SHA}" \
+            --region=${{ vars.GCP_REGION }} \
+            --no-allow-unauthenticated \
+            --use-http2 \
+            --service-account=imageservice-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
+            --memory=2Gi --cpu=2 --quiet
+
+      - name: Deploy authservice
+        run: |
+          gcloud run deploy authservice \
+            --image="${IMAGE_BASE}/authservice:${GITHUB_SHA}" \
+            --region=${{ vars.GCP_REGION }} \
+            --no-allow-unauthenticated \
+            --use-http2 \
+            --service-account=authservice-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
+            --add-cloudsql-instances=${{ vars.GCP_SQL_CONN }} \
+            --set-secrets=DATABASE_URL=database-url:latest,JWT_SECRET=jwt-secret:latest \
+            --quiet
+
+      - name: Deploy httpserver
+        run: |
+          gcloud run deploy httpserver \
+            --image="${IMAGE_BASE}/httpserver:${GITHUB_SHA}" \
+            --region=${{ vars.GCP_REGION }} \
+            --allow-unauthenticated \
+            --service-account=httpserver-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
+            --add-cloudsql-instances=${{ vars.GCP_SQL_CONN }} \
+            --set-secrets=DATABASE_URL=database-url:latest,MINIO_ACCESS_KEY=gcs-access-key:latest,MINIO_SECRET_KEY=gcs-secret-key:latest,TEMPORAL_API_KEY=temporal-api-key:latest \
+            --set-env-vars="^@^AUTH_SERVICE_ADDR=${{ vars.AUTH_SERVICE_URL }}@TEMPORAL_ADDRESS=${{ vars.TEMPORAL_ADDRESS }}@TEMPORAL_NAMESPACE=${{ vars.TEMPORAL_NAMESPACE }}@MINIO_ENDPOINT=storage.googleapis.com@MINIO_PUBLIC_ENDPOINT=storage.googleapis.com@MINIO_BUCKET=${{ vars.GCP_BUCKET }}@OBJECT_STORE_USE_SSL=true@OBJECT_STORE_ENSURE_BUCKET=false" \
+            --quiet
+
+      - name: Deploy worker pool
+        run: |
+          gcloud run worker-pools deploy worker \
+            --image="${IMAGE_BASE}/worker:${GITHUB_SHA}" \
+            --region=${{ vars.GCP_REGION }} \
+            --instances=2 \
+            --service-account=worker-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
+            --add-cloudsql-instances=${{ vars.GCP_SQL_CONN }} \
+            --memory=2Gi \
+            --set-secrets=DATABASE_URL=database-url:latest,MINIO_ACCESS_KEY=gcs-access-key:latest,MINIO_SECRET_KEY=gcs-secret-key:latest,TEMPORAL_API_KEY=temporal-api-key:latest \
+            --set-env-vars="^@^IMAGE_SERVICE_ADDR=${{ vars.IMAGE_SERVICE_URL }}@TEMPORAL_ADDRESS=${{ vars.TEMPORAL_ADDRESS }}@TEMPORAL_NAMESPACE=${{ vars.TEMPORAL_NAMESPACE }}@MINIO_ENDPOINT=storage.googleapis.com@MINIO_PUBLIC_ENDPOINT=storage.googleapis.com@MINIO_BUCKET=${{ vars.GCP_BUCKET }}@OBJECT_STORE_USE_SSL=true@OBJECT_STORE_ENSURE_BUCKET=false" \
+            --quiet
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          url=$(gcloud run services describe httpserver --region=${{ vars.GCP_REGION }} --format='value(status.url)')
+          code=$(curl -s -o /dev/null -w '%{http_code}' "${url}/health")
+          echo "health: HTTP ${code}"
+          [ "$code" = "200" ]

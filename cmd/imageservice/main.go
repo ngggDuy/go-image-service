@@ -5,13 +5,15 @@ import (
 	"net"
 
 	"go-image-service/gen/imageprocess"
+	"go-image-service/internal/config"
 	"go-image-service/internal/imaging"
 
 	"google.golang.org/grpc"
 )
 
 func main() {
-	lis, err := net.Listen("tcp", ":50051")
+	addr := config.ListenAddr("50051")
+	lis, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
@@ -22,7 +24,7 @@ func main() {
 	// several at once and OOM the container.
 	imageprocess.RegisterResizerServer(s, imaging.NewServer(1))
 
-	log.Println("image service listening on :50051")
+	log.Printf("image service listening on %s", addr)
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}

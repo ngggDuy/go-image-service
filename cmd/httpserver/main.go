@@ -10,23 +10,23 @@ import (
 	"go-image-service/internal/metadata"
 	"go-image-service/internal/pipeline"
 	"go-image-service/internal/storage"
+	"go-image-service/internal/temporalclient"
 	"go-image-service/internal/transport"
 	"go-image-service/internal/upload"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"go.temporal.io/sdk/client"
 )
 
 func main() {
 	cfg := config.Load()
 
-	tc, err := client.Dial(client.Options{HostPort: cfg.TemporalAddress})
+	tc, err := temporalclient.Dial(cfg)
 	if err != nil {
 		log.Fatalf("dial temporal: %v", err)
 	}
 	defer tc.Close()
 
-	authClient, err := authclient.Dial(cfg.AuthServiceAddr)
+	authClient, err := authclient.Dial(context.Background(), cfg.AuthServiceAddr)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -41,16 +41,19 @@ func main() {
 		log.Fatalf("cannot reach postgres: %v", err)
 	}
 
-	// Object storage (MinIO). Ensure the bucket exists at startup.
+	// Object storage. Against GCS the bucket is provisioned out of band and
+	// MakeBucket is unsupported, so EnsureBucket is disabled by configuration.
 	objects, err := storage.NewMinioStore(
 		cfg.MinioEndpoint, cfg.MinioPublicEndpoint,
-		cfg.MinioAccessKey, cfg.MinioSecretKey, cfg.MinioBucket, false,
+		cfg.MinioAccessKey, cfg.MinioSecretKey, cfg.MinioBucket, cfg.ObjectStoreUseSSL,
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := objects.EnsureBucket(context.Background()); err != nil {
-		log.Fatalf("ensure bucket: %v", err)
+	if cfg.ObjectStoreEnsureBucket {
+		if err := objects.EnsureBucket(context.Background()); err != nil {
+			log.Fatalf("ensure bucket: %v", err)
+		}
 	}
 
 	repo := metadata.New(pool)

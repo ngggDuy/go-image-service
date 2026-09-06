@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Formatting drift is invisible to the compiler and to tests, so it is
+      # only ever caught here or by a human reviewer. gofmt -l prints the
+      # offending files and nothing else, so a non-empty result fails the job.
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      # -race matters here specifically: the resize activities run in parallel
+      # across workers, which is where a data race would hide.
+      - name: Test
+        run: go test -race ./...
+
+      - name: Build
+        run: go build ./...
