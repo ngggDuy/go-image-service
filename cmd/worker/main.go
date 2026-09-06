@@ -6,6 +6,7 @@ import (
 
 	"go-image-service/gen/imageprocess"
 	"go-image-service/internal/config"
+	"go-image-service/internal/grpcauth"
 	"go-image-service/internal/metadata"
 	"go-image-service/internal/pipeline"
 	"go-image-service/internal/resizer"
@@ -14,14 +15,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
 	cfg := config.Load()
 
-	conn, err := grpc.NewClient(cfg.ImageServiceAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpcauth.Dial(context.Background(), cfg.ImageServiceAddr)
 	if err != nil {
 		log.Fatal(err)
 	}

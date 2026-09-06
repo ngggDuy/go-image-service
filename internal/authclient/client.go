@@ -5,10 +5,10 @@ import (
 
 	"go-image-service/gen/authpb"
 	"go-image-service/internal/auth"
+	"go-image-service/internal/grpcauth"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
 
@@ -19,8 +19,8 @@ type Client struct {
 	conn *grpc.ClientConn
 }
 
-func Dial(addr string) (*Client, error) {
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+func Dial(ctx context.Context, addr string) (*Client, error) {
+	conn, err := grpcauth.Dial(ctx, addr)
 	if err != nil {
 		return nil, err
 	}

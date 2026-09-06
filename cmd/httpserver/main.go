@@ -26,7 +26,7 @@ func main() {
 	}
 	defer tc.Close()
 
-	authClient, err := authclient.Dial(cfg.AuthServiceAddr)
+	authClient, err := authclient.Dial(context.Background(), cfg.AuthServiceAddr)
 	if err != nil {
 		log.Fatal(err)
 	}
