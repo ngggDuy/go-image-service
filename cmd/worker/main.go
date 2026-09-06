@@ -11,9 +11,9 @@ import (
 	"go-image-service/internal/pipeline"
 	"go-image-service/internal/resizer"
 	"go-image-service/internal/storage"
+	"go-image-service/internal/temporalclient"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 )
 
@@ -34,16 +34,18 @@ func main() {
 
 	objects, err := storage.NewMinioStore(
 		cfg.MinioEndpoint, cfg.MinioPublicEndpoint,
-		cfg.MinioAccessKey, cfg.MinioSecretKey, cfg.MinioBucket, false,
+		cfg.MinioAccessKey, cfg.MinioSecretKey, cfg.MinioBucket, cfg.ObjectStoreUseSSL,
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := objects.EnsureBucket(context.Background()); err != nil {
-		log.Fatalf("ensure bucket: %v", err)
+	if cfg.ObjectStoreEnsureBucket {
+		if err := objects.EnsureBucket(context.Background()); err != nil {
+			log.Fatalf("ensure bucket: %v", err)
+		}
 	}
 
-	c, err := client.Dial(client.Options{HostPort: cfg.TemporalAddress})
+	c, err := temporalclient.Dial(cfg)
 	if err != nil {
 		log.Fatalf("dial temporal: %v", err)
 	}
