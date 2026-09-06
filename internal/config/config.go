@@ -1,6 +1,9 @@
 package config
 
-import "os"
+import (
+	"os"
+	"strconv"
+)
 
 // Config holds all runtime configuration, sourced from environment variables
 // with sensible local-development defaults.
@@ -18,6 +21,12 @@ type Config struct {
 	MinioAccessKey      string
 	MinioSecretKey      string
 	MinioBucket         string
+
+	TemporalNamespace string // Temporal Cloud namespace, as <namespace_id>.<account_id>
+	TemporalAPIKey    string // Temporal Cloud API key; empty means a local, unauthenticated cluster
+
+	ObjectStoreUseSSL       bool // https to the object store (true for GCS, false for local MinIO)
+	ObjectStoreEnsureBucket bool // create the bucket at startup; false against GCS, which rejects it
 }
 
 // Load reads configuration from the environment, falling back to defaults.
@@ -36,6 +45,12 @@ func Load() Config {
 		MinioAccessKey:      getenv("MINIO_ACCESS_KEY", "minioadmin"),
 		MinioSecretKey:      getenv("MINIO_SECRET_KEY", "minioadmin"),
 		MinioBucket:         getenv("MINIO_BUCKET", "images"),
+
+		TemporalNamespace: getenv("TEMPORAL_NAMESPACE", "default"),
+		TemporalAPIKey:    getenv("TEMPORAL_API_KEY", ""),
+
+		ObjectStoreUseSSL:       getenvBool("OBJECT_STORE_USE_SSL", false),
+		ObjectStoreEnsureBucket: getenvBool("OBJECT_STORE_ENSURE_BUCKET", true),
 	}
 }
 
@@ -56,4 +71,18 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// getenvBool returns the boolean value of the environment variable key, or
+// fallback if it is unset, empty, or not parseable as a bool.
+func getenvBool(key string, fallback bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return fallback
+	}
+	return b
 }
