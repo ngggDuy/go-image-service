@@ -3,7 +3,6 @@ package config
 import (
 	"os"
 	"strconv"
-	"strings"
 )
 
 // Config holds all runtime configuration, sourced from environment variables
@@ -60,6 +59,7 @@ func Load() Config {
 		ObjectStoreUseSSL:       getenvBool("OBJECT_STORE_USE_SSL", false),
 		ObjectStoreEnsureBucket: getenvBool("OBJECT_STORE_ENSURE_BUCKET", true),
 	}
+	return ":" + fallback
 }
 
 // ListenAddr returns the TCP address to listen on. Cloud Run injects PORT and
@@ -79,26 +79,6 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
-}
-
-// getenvList splits a comma-separated environment variable into a slice,
-// trimming whitespace around each entry, or returns fallback if it is unset
-// or empty.
-func getenvList(key string, fallback []string) []string {
-	v := os.Getenv(key)
-	if v == "" {
-		return fallback
-	}
-	var out []string
-	for _, part := range strings.Split(v, ",") {
-		if part = strings.TrimSpace(part); part != "" {
-			out = append(out, part)
-		}
-	}
-	if len(out) == 0 {
-		return fallback
-	}
-	return out
 }
 
 // getenvBool returns the boolean value of the environment variable key, or
