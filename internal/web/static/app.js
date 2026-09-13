@@ -225,9 +225,18 @@ $('#upload-form').addEventListener('submit', async (e) => {
     rememberID(id, file.name);
 
     // Step 2 — the bytes go straight to object storage, bypassing the API.
+    // A CORS rejection surfaces as a thrown TypeError with no status, so this
+    // has to catch as well as check put.ok, or the step just hangs.
     step('put', 'active');
     const started = performance.now();
-    const put = await fetch(url, { method: 'PUT', body: file });
+    let put;
+    try {
+      put = await fetch(url, { method: 'PUT', body: file });
+    } catch (err) {
+      logRequest('PUT', '(presigned) ' + new URL(url).pathname, 0, performance.now() - started);
+      step('put', 'failed', 'could not reach object storage — likely a CORS or network error');
+      return;
+    }
     logRequest('PUT', '(presigned) ' + new URL(url).pathname, put.status, performance.now() - started);
     if (!put.ok) {
       step('put', 'failed', 'storage returned ' + put.status);
