@@ -13,6 +13,7 @@ The full, formal contract is in **[`openapi.yaml`](./openapi.yaml)**.
 |--------|------|---------|---------|--------|
 | `POST` | `/uploads` | `{"filename":"...","content_type":"image/jpeg"}` | `201` → `{"id":"...","url":"...","expires_in":900}` | `400`, `500` |
 | `POST` | `/uploads/{id}/complete` | — | `200` (idempotent) | `400`, `404`, `500` |
+| `GET` | `/images` | — | `200` → `{"images":[{"id":"...","filename":"...","content_type":"...","status":"...","created_at":"..."}]}` | `401`, `500` |
 | `GET` | `/images/{id}/status` | — | `200` → `{"id":"...","status":"..."}` | `400`, `404` |
 | `GET` | `/images/{id}?size=` | `size` = `original` \| `12x12` \| `25x25` | `200` → image bytes | `400`, `404` |
 | `GET` | `/health` | — | `200` → `{"status":"ok"}` | — |
@@ -85,6 +86,34 @@ Common commands (run `make` with no argument to list them all):
 | `make db` | open a `psql` shell |
 | `make down` | stop containers |
 | `make clean` | stop **and** wipe volumes (fresh DB) |
+| `make web` | serve the frontend standalone on `:5500` (dev) |
+
+## Demo frontend
+
+`internal/web/static/` holds a dependency-free browser demo — plain HTML, CSS, and one JS
+file, no build step. It is compiled into the httpserver binary with `go:embed` and served at
+the root, so with the stack running it is simply:
+
+**http://localhost:8080**
+
+Because it is served from the same origin as the API, the deployed demo needs no separate
+static host and no CORS. To iterate on the frontend without rebuilding the container, serve
+it standalone instead:
+
+```bash
+make web   # http://localhost:5500, talking to the API on :8080
+```
+
+It walks the whole system in order: register, log in (showing the decoded JWT), upload an
+image through the presigned-URL handshake with each step of the Temporal pipeline traced
+live, list your own uploads, view the resized variants, and probe the ownership check with
+another account's image id. Every HTTP call is recorded in a request log at the bottom of
+the page.
+
+That standalone mode is cross-origin, which is what `transport.CORS` (wired in
+`cmd/httpserver/main.go`) is for. `CORS_ALLOWED_ORIGINS` is a comma-separated allowlist
+defaulting to `*` for local development; set it to real origins, or drop it entirely, when
+deploying.
 
 ## How it works
 

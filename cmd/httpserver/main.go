@@ -60,6 +60,10 @@ func main() {
 	uploadSvc := upload.New(repo, objects, pipeline.NewOrchestrator(tc, cfg.TaskQueue))
 	server := transport.New(authClient, uploadSvc, repo, objects)
 
+	// The demo frontend is served from its own origin, so the API needs CORS
+	// in front of the router to answer preflight requests.
+	handler := transport.CORS(cfg.CORSAllowedOrigins, server.Routes())
+
 	log.Printf("http server listening on %s", cfg.HTTPAddr)
-	log.Fatal(http.ListenAndServe(cfg.HTTPAddr, server.Routes()))
+	log.Fatal(http.ListenAndServe(cfg.HTTPAddr, handler))
 }

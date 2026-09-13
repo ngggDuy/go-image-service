@@ -32,6 +32,9 @@ ps: ## Show container status
 db: ## Open a psql shell in the Postgres container
 	$(COMPOSE) exec postgres psql -U imageservice -d imageservice
 
+web: ## Serve the frontend standalone on :5500 for dev (it is also embedded in httpserver)
+	python3 -m http.server 5500 --directory internal/web/static
+
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-8s\033[0m %s\n", $$1, $$2}'
