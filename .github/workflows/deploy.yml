@@ -3,6 +3,12 @@ name: Deploy
 on:
   push:
     branches: [main]
+    # Terraform and docs do not change the container images, so they should not
+    # trigger a production rollout. A push touching code as well still deploys:
+    # the run is skipped only when every changed file matches these patterns.
+    paths-ignore:
+      - 'infra/**'
+      - '**.md'
 
 # id-token: write is what allows this job to request a GitHub OIDC token.
 # Without it, authentication to GCP fails with a confusing "unable to get

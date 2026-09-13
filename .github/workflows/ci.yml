@@ -2,8 +2,14 @@ name: CI
 
 on:
   pull_request:
+    paths-ignore:
+      - 'infra/**'
+      - '**.md'
   push:
     branches: [main]
+    paths-ignore:
+      - 'infra/**'
+      - '**.md'
 
 jobs:
   test:

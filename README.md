@@ -115,6 +115,25 @@ That standalone mode is cross-origin, which is what `transport.CORS` (wired in
 defaulting to `*` for local development; set it to real origins, or drop it entirely, when
 deploying.
 
+## Deployment
+
+Running on Google Cloud in `asia-southeast1`: three Cloud Run services (`httpserver`,
+`authservice`, `imageservice`) plus a two-instance worker pool, backed by Cloud SQL for
+Postgres, a GCS bucket in place of MinIO, and Temporal Cloud.
+
+**https://httpserver-782206667056.asia-southeast1.run.app** — the demo page and the API
+are the same origin, since the frontend is embedded in the binary.
+
+Pushing to `main` runs [`deploy.yml`](.github/workflows/deploy.yml): it builds four images
+tagged with the commit SHA, pushes them to Artifact Registry, and rolls out every workload.
+It authenticates to GCP with Workload Identity Federation, so no service-account key exists
+anywhere in the pipeline.
+
+The supporting infrastructure — Cloud SQL, the bucket, service accounts, IAM, secrets, and
+the federation setup — is Terraform, in [`infra/`](./infra). The Cloud Run services are
+deliberately left to CI rather than Terraform; [`infra/README.md`](./infra/README.md)
+explains the split.
+
 ## How it works
 
 Services, run together with Docker Compose:
