@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"time"
 	"unicode/utf8"
 
 	"go-image-service/internal/auth"
@@ -41,6 +42,16 @@ type createUploadResponse struct {
 type statusResponse struct {
 	ID     string `json:"id"`
 	Status string `json:"status"`
+}
+type imageSummary struct {
+	ID          string    `json:"id"`
+	Filename    string    `json:"filename"`
+	ContentType string    `json:"content_type"`
+	Status      string    `json:"status"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+type listImagesResponse struct {
+	Images []imageSummary `json:"images"`
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
@@ -165,6 +176,31 @@ func (s *Server) images(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", contentType)
 	w.Write(data)
+}
+
+// listImages returns the caller's own uploads. The owner filter lives in the
+// SQL, so there is no per-row check to make here.
+func (s *Server) listImages(w http.ResponseWriter, r *http.Request) {
+	userID, _ := UserIDFromContext(r.Context())
+
+	uploads, err := s.reads.List(r.Context(), userID)
+	if err != nil {
+		log.Printf("listImages: %v", err)
+		http.Error(w, "could not list images", http.StatusInternalServerError)
+		return
+	}
+
+	images := make([]imageSummary, 0, len(uploads))
+	for _, u := range uploads {
+		images = append(images, imageSummary{
+			ID:          u.ID,
+			Filename:    u.Filename,
+			ContentType: u.ContentType,
+			Status:      u.Status,
+			CreatedAt:   u.CreatedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, listImagesResponse{Images: images})
 }
 
 func (s *Server) imageStatus(w http.ResponseWriter, r *http.Request) {

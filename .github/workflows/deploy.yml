@@ -73,7 +73,7 @@ jobs:
             --no-allow-unauthenticated \
             --use-http2 \
             --service-account=authservice-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
-            --add-cloudsql-instances=${{ vars.GCP_SQL_CONN }} \
+            --set-cloudsql-instances=${{ vars.GCP_SQL_CONN }} \
             --set-secrets=DATABASE_URL=database-url:latest,JWT_SECRET=jwt-secret:latest \
             --quiet
 
@@ -84,7 +84,7 @@ jobs:
             --region=${{ vars.GCP_REGION }} \
             --allow-unauthenticated \
             --service-account=httpserver-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
-            --add-cloudsql-instances=${{ vars.GCP_SQL_CONN }} \
+            --set-cloudsql-instances=${{ vars.GCP_SQL_CONN }} \
             --set-secrets=DATABASE_URL=database-url:latest,MINIO_ACCESS_KEY=gcs-access-key:latest,MINIO_SECRET_KEY=gcs-secret-key:latest,TEMPORAL_API_KEY=temporal-api-key:latest \
             --set-env-vars="^@^AUTH_SERVICE_ADDR=${{ vars.AUTH_SERVICE_URL }}@TEMPORAL_ADDRESS=${{ vars.TEMPORAL_ADDRESS }}@TEMPORAL_NAMESPACE=${{ vars.TEMPORAL_NAMESPACE }}@MINIO_ENDPOINT=storage.googleapis.com@MINIO_PUBLIC_ENDPOINT=storage.googleapis.com@MINIO_BUCKET=${{ vars.GCP_BUCKET }}@OBJECT_STORE_USE_SSL=true@OBJECT_STORE_ENSURE_BUCKET=false" \
             --quiet
@@ -96,7 +96,7 @@ jobs:
             --region=${{ vars.GCP_REGION }} \
             --instances=2 \
             --service-account=worker-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
-            --add-cloudsql-instances=${{ vars.GCP_SQL_CONN }} \
+            --set-cloudsql-instances=${{ vars.GCP_SQL_CONN }} \
             --memory=2Gi \
             --set-secrets=DATABASE_URL=database-url:latest,MINIO_ACCESS_KEY=gcs-access-key:latest,MINIO_SECRET_KEY=gcs-secret-key:latest,TEMPORAL_API_KEY=temporal-api-key:latest \
             --set-env-vars="^@^IMAGE_SERVICE_ADDR=${{ vars.IMAGE_SERVICE_URL }}@TEMPORAL_ADDRESS=${{ vars.TEMPORAL_ADDRESS }}@TEMPORAL_NAMESPACE=${{ vars.TEMPORAL_NAMESPACE }}@MINIO_ENDPOINT=storage.googleapis.com@MINIO_PUBLIC_ENDPOINT=storage.googleapis.com@MINIO_BUCKET=${{ vars.GCP_BUCKET }}@OBJECT_STORE_USE_SSL=true@OBJECT_STORE_ENSURE_BUCKET=false" \

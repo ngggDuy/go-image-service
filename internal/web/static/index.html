@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>go-image-service — demo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>go-image-service</h1>
+  <div class="api">
+    <label for="api-base">API</label>
+    <input id="api-base" type="text" spellcheck="false">
+  </div>
+  <div id="whoami" class="whoami hidden">
+    <span id="whoami-email"></span>
+    <button id="logout" class="link">Log out</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- ============ 1. AUTH ============ -->
+  <section id="auth-section">
+    <h2>1 · Authentication</h2>
+    <p class="hint">
+      <code>POST /register</code> hashes the password with bcrypt and returns a user id — no token.
+      <code>POST /login</code> verifies it and issues an HS256 JWT valid for 24 hours.
+    </p>
+
+    <div class="two-col">
+      <form id="register-form">
+        <h3>Register</h3>
+        <input name="email" type="email" placeholder="you@example.com" autocomplete="off" required>
+        <input name="password" type="password" placeholder="password (min 8 chars)" autocomplete="off" required>
+        <button type="submit">Register</button>
+        <output id="register-out"></output>
+      </form>
+
+      <form id="login-form">
+        <h3>Log in</h3>
+        <input name="email" type="email" placeholder="you@example.com" autocomplete="off" required>
+        <input name="password" type="password" placeholder="password" autocomplete="off" required>
+        <button type="submit">Log in</button>
+        <output id="login-out"></output>
+      </form>
+    </div>
+
+    <div id="token-box" class="token-box hidden">
+      <h3>Your bearer token</h3>
+      <p class="hint">Sent as <code>Authorization: Bearer &lt;token&gt;</code> on every call below.</p>
+      <pre id="token-raw"></pre>
+      <h4>Decoded payload</h4>
+      <pre id="token-claims"></pre>
+    </div>
+  </section>
+
+  <!-- ============ 2. UPLOAD ============ -->
+  <section id="upload-section" class="locked">
+    <h2>2 · Upload an image</h2>
+    <p class="hint">
+      Bytes never pass through the API. It hands back a presigned URL, the browser PUTs straight to
+      object storage, then signals a Temporal workflow that resizes in the background.
+    </p>
+
+    <form id="upload-form">
+      <input id="file" type="file" accept="image/jpeg,image/png" required>
+      <button type="submit">Upload</button>
+    </form>
+
+    <ol id="steps" class="steps hidden">
+      <li data-step="negotiate"><span class="dot"></span><b>POST /uploads</b><span class="detail"></span></li>
+      <li data-step="put"><span class="dot"></span><b>PUT presigned URL</b><span class="detail"></span></li>
+      <li data-step="complete"><span class="dot"></span><b>POST /uploads/{id}/complete</b><span class="detail"></span></li>
+      <li data-step="poll"><span class="dot"></span><b>GET /images/{id}/status</b><span class="detail"></span></li>
+    </ol>
+  </section>
+
+  <!-- ============ 3. MY IMAGES ============ -->
+  <section id="images-section" class="locked">
+    <h2>3 · My images <button id="refresh" class="link">refresh</button></h2>
+    <p class="hint">
+      <code>GET /images</code> returns only rows where <code>user_id</code> matches the JWT subject.
+      Log in as a second account and this list is empty.
+    </p>
+    <div id="list-fallback" class="warn hidden"></div>
+    <div id="image-list" class="grid"></div>
+  </section>
+
+  <!-- ============ 4. VARIANTS ============ -->
+  <section id="variants-section" class="locked hidden">
+    <h2>4 · Resized variants</h2>
+    <p class="hint">
+      The Temporal workflow fans out one resize activity per size in parallel, each writing back to
+      <code>{id}/{size}</code> in object storage.
+    </p>
+    <div id="variants" class="variants"></div>
+  </section>
+
+  <!-- ============ 5. AUTHZ PROBE ============ -->
+  <section id="authz-section" class="locked">
+    <h2>5 · Authorization probe</h2>
+    <p class="hint">
+      Copy an image id from one account, log in as another, and request it here. Ownership is checked
+      server-side against the JWT subject. It answers <b>404</b> rather than 403 on purpose — a 403
+      would confirm the id exists.
+    </p>
+    <form id="probe-form">
+      <input name="id" type="text" placeholder="32-character image id" spellcheck="false" required>
+      <button type="submit">GET /images/{id}/status</button>
+    </form>
+    <output id="probe-out"></output>
+  </section>
+
+  <!-- ============ REQUEST LOG ============ -->
+  <section id="log-section">
+    <h2>Request log <button id="clear-log" class="link">clear</button></h2>
+    <table id="log">
+      <thead><tr><th>Method</th><th>URL</th><th>Status</th><th>Time</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
