@@ -11,6 +11,11 @@ import {
 }
 
 import {
+  to = google_project_service.enabled["iam.googleapis.com"]
+  id = "img-svc-train/iam.googleapis.com"
+}
+
+import {
   to = google_project_service.enabled["iamcredentials.googleapis.com"]
   id = "img-svc-train/iamcredentials.googleapis.com"
 }

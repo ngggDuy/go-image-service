@@ -8,6 +8,7 @@
 locals {
   services = [
     "artifactregistry.googleapis.com",
+    "iam.googleapis.com",
     "iamcredentials.googleapis.com",
     "run.googleapis.com",
     "secretmanager.googleapis.com",
@@ -31,7 +32,7 @@ resource "google_artifact_registry_repository" "services" {
   location      = var.region
   repository_id = "services"
   format        = "DOCKER"
-  description   = "Container images for the image service, pushed by CI."
+  description   = "go-image-service images"
 }
 
 locals {
@@ -87,6 +88,11 @@ resource "google_sql_database_instance" "main" {
     availability_type = "ZONAL"
     disk_size         = 10
 
+    # Terraform's own deletion_protection only guards `terraform destroy`.
+    # This is the GCP-level flag that also blocks console and gcloud deletes.
+    deletion_protection_enabled = true
+    enable_dataplex_integration = true
+
     backup_configuration {
       enabled = true
     }
@@ -122,7 +128,7 @@ resource "google_storage_bucket" "images" {
   project                     = var.project_id
   name                        = var.bucket_name
   location                    = var.region
-  uniform_bucket_level_access = false
+  uniform_bucket_level_access = true
 
   # The browser PUTs here directly via presigned URL. Without CORS the
   # preflight returns 200 with no allow-origin and uploads fail in-browser.
