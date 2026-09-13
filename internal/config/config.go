@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Config holds all runtime configuration, sourced from environment variables
@@ -15,6 +16,11 @@ type Config struct {
 	TaskQueue        string // Temporal task queue name
 	JWTSecret        string // secret key used to sign/verify JWTs (auth service only)
 	AuthServiceAddr  string // gRPC address of the auth service
+
+	// CORSAllowedOrigins lists the browser origins allowed to call the HTTP
+	// API. A single "*" allows any origin, which is the development default
+	// so the demo frontend can be served from any static server.
+	CORSAllowedOrigins []string
 
 	MinioEndpoint       string // internal endpoint for object operations (e.g. minio:9000)
 	MinioPublicEndpoint string // client-reachable endpoint for presigned URLs (e.g. localhost:9000)
@@ -39,6 +45,8 @@ func Load() Config {
 		TaskQueue:        getenv("TASK_QUEUE", "image-resize"),
 		JWTSecret:        getenv("JWT_SECRET", "dev-secret-change-me-in-prod"),
 		AuthServiceAddr:  getenv("AUTH_SERVICE_ADDR", "localhost:50052"),
+
+		CORSAllowedOrigins: getenvList("CORS_ALLOWED_ORIGINS", []string{"*"}),
 
 		MinioEndpoint:       getenv("MINIO_ENDPOINT", "localhost:9000"),
 		MinioPublicEndpoint: getenv("MINIO_PUBLIC_ENDPOINT", "localhost:9000"),
@@ -71,6 +79,26 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// getenvList splits a comma-separated environment variable into a slice,
+// trimming whitespace around each entry, or returns fallback if it is unset
+// or empty.
+func getenvList(key string, fallback []string) []string {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	var out []string
+	for _, part := range strings.Split(v, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	if len(out) == 0 {
+		return fallback
+	}
+	return out
 }
 
 // getenvBool returns the boolean value of the environment variable key, or

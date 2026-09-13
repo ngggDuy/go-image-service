@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+
+	"go-image-service/internal/metadata"
+	"go-image-service/internal/web"
 )
 
 // Authenticator handles registration, login, and token verification.
@@ -23,6 +26,7 @@ type Uploads interface {
 // UploadReader reads an upload's status, owner, and content type. metadata.Repository satisfies it.
 type UploadReader interface {
 	Get(ctx context.Context, id string) (status, userID, contentType string, err error)
+	List(ctx context.Context, userID string) ([]metadata.Upload, error)
 }
 
 // ObjectGetter fetches stored object bytes for serving. storage.MinioStore satisfies it.
@@ -54,8 +58,12 @@ func (s *Server) Routes() http.Handler {
 	// Protected: a valid Bearer token is required; reads are owner-checked.
 	mux.Handle("POST /uploads", s.requireAuth(http.HandlerFunc(s.createUpload)))
 	mux.Handle("POST /uploads/{id}/complete", s.requireAuth(http.HandlerFunc(s.completeUpload)))
+	mux.Handle("GET /images", s.requireAuth(http.HandlerFunc(s.listImages)))
 	mux.Handle("GET /images/{id}", s.requireAuth(http.HandlerFunc(s.images)))
 	mux.Handle("GET /images/{id}/status", s.requireAuth(http.HandlerFunc(s.imageStatus)))
+
+	// Least specific pattern: only sees what nothing above matched.
+	mux.Handle("GET /", web.Handler())
 
 	return mux
 }
